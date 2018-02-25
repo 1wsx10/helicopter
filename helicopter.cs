@@ -1,95 +1,96 @@
+public Program() {
+	Runtime.UpdateFrequency = UpdateFrequency.Update1;
+}
+
+public string log = "";
+
+int counter = 0;
 public void Main(string argument) {
 	writeBool = false;
-	// setup control module
-	Dictionary<string, object> inputs;
-	try {
-		inputs = Me.GetValue<Dictionary<string, object>>("ControlModule.Inputs");
-	} catch(Exception exception) {
-		Echo("Control Module not installed");
-		Echo("Go install the mod linked on this scripts workshop page");
-		Echo("Exception: " + exception);
-		return;
+
+	Echo($"{counter++}");
+
+	Echo($"{Runtime.TimeSinceLastRun}");
+	if(Runtime.TimeSinceLastRun.Milliseconds > 16) {
+		log += $"Time was greater than 0.016: \n\t{Runtime.TimeSinceLastRun.Milliseconds}ms";
 	}
 
-	// controls
-	bool c = inputs.ContainsKey("c.crouch"); // find a specific key
-	bool space = inputs.ContainsKey("c.jump"); // find a specific key
-	bool w = inputs.ContainsKey("c.forward"); // find a specific key
-	bool s = inputs.ContainsKey("c.backward"); // find a specific key
-	bool a = inputs.ContainsKey("c.strafeleft"); // find a specific key
-	bool d = inputs.ContainsKey("c.straferight"); // find a specific key
-	bool q = inputs.ContainsKey("c.rollleft"); // find a specific key
-	bool e = inputs.ContainsKey("c.rollright"); // find a specific key
+	Echo(log);
 
 	IMyShipController controller = (IMyShipController)GridTerminalSystem.GetBlockWithName("Cockpit");
 
 	// get rotors
-	Rotor mBA = new Rotor(controller, (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"));
-	Rotor mBB = new Rotor(controller, (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor B"));
-	Rotor tBA = new Rotor(controller, (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor A"));
-	Rotor tBB = new Rotor(controller, (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor B"));
-
 	IMyMotorStator mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
 	IMyMotorStator tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor");
 
+	IMyMotorStator[] mainSwashRotors = new IMyMotorStator[] {
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor B")
+	};
+
+	IMyMotorStator[] antiTrqRotors = new IMyMotorStator[] {
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor A"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor B")
+	};
 
 
-	SwashPlate mainSwash = new SwashPlate(controller, mBA, mBB, mShaft);
-	SwashPlate antiTrq = new SwashPlate(controller, tBA, tBB, tShaft);
+	// construct swashplates
+	SwashPlate mainSwash = new SwashPlate(controller, mainSwashRotors, mShaft);
+	SwashPlate antiTrq = new SwashPlate(controller, antiTrqRotors, tShaft);
+
+	// setup controls
+	Controls mainSwashCont = new Controls();
+	Controls antiTrqCont = new Controls();
+
+	antiTrqCont.collective = 0.25f;
+	// if(d) {
+	// 	antiTrqCont.collective = -0.5f;
+	// }
+	// if(a) {
+	// 	antiTrqCont.collective = 0.19f;
+	// }
 
 
+	float collectiveDefault = 0.45f;
+	float cyclicDefault = 0.3f;
 
-	antiTrq.collective = -0.25f;
-	if(d) {
-		antiTrq.collective = -0.5f;
-	}
-	if(a) {
-		antiTrq.collective = 0.19f;
-	}
+	mainSwashCont.collective = 0.1f;
 
+	float rollTrim = -0.008f;
 
-	float collective = 0.45f;
-	float cyclic = 0.3f;
+	antiTrqCont.collective += controller.MoveIndicator.X * collectiveDefault;
+	mainSwashCont.collective += controller.MoveIndicator.Y * collectiveDefault;
+	mainSwashCont.cyclicR += controller.MoveIndicator.Z * cyclicDefault;
+	mainSwashCont.cyclicF += controller.RollIndicator * 0.3f * cyclicDefault + rollTrim;
 
-	mainSwash.collective = 0.1f;
-	if(space) {
-		mainSwash.collective = collective;
-	}
-	if(c) {
-		mainSwash.collective = -collective;
-	}
-	if(w) {
-		mainSwash.cyclicR = cyclic;
-	}
-	if(s) {
-		mainSwash.cyclicR = -cyclic;
-	}
-	if(e) {
-		mainSwash.cyclicF = cyclic;
-	}
-	if(q) {
-		mainSwash.cyclicF = -cyclic;
-	}
-
-
-	// roll stability
-
-
+	mainSwashCont.collective *= -1;
+	// mainSwashCont.cyclicR *= -1;
+	// mainSwashCont.cyclicF *= -1;
 
 	// mouse control
-	mainSwash.cyclicR += controller.RotationIndicator.X * 0.01f;
-	antiTrq.collective += controller.RotationIndicator.Y * -0.01f;
+	mainSwashCont.cyclicR += controller.RotationIndicator.X * -0.01f;
+	antiTrqCont.collective += controller.RotationIndicator.Y * 0.01f;
 
 
-	mainSwash.go();
-	antiTrq.go();
+	// temp, swap these around
+	float temp = mainSwashCont.cyclicR;
+	mainSwashCont.cyclicR = mainSwashCont.cyclicF;
+	mainSwashCont.cyclicF = temp;
 
 
 
+	// TODO: roll stability
+
+
+	mainSwash.go(mainSwashCont);
+	antiTrq.go(antiTrqCont);
+
+
+	// text
 	write(mainSwash.theStr);
 	write(antiTrq.theStr);
 	Echo(mainSwash.theStr);
-	write(mBA.theString);
+	write(mainSwash.blades[0].theString);
 }
 
 public List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
@@ -116,214 +117,219 @@ public void write(string str) {
 	}
 }
 
+// gets cos(angle between 2 vectors)
+// cos returns a number between 0 and 1
+// use Acos to get the angle
+public static double angleBetweenCos(Vector3D a, Vector3D b) {
+	double dot = Vector3D.Dot(a, b);
+	double Length = a.Length() * b.Length();
+	return dot/Length;
+}
+
+// gets cos(angle between 2 vectors)
+// cos returns a number between 0 and 1
+// use Acos to get the angle
+// doesn't calculate length because thats expensive
+public static double angleBetweenCos(Vector3D a, Vector3D b, double len) {
+	double dot = Vector3D.Dot(a, b);
+	return dot/len;
+}
+
+public struct Controls {
+	public float collective;
+	public float cyclicF;
+	public float cyclicR;
+}
+
 public class SwashPlate {
 
 	// physical parts
-	public Rotor rA;
-	public Rotor rB;
+	public List<Rotor> blades;
 	public IMyShipController controller;
 	public IMyMotorStator rotorShaft;
 
-	// vectors
-	public Vector3D aVec;//forward direction of that rotor
-	public Vector3D bVec;
-	public MatrixD contMat;
-	public MatrixD shafMat;
-	public MatrixD shafMatI;
-
-	// controls (-1 to 1)
-	public float collective;// positive = accelerate up
-	public float cyclicF;// positive = pitch down
-	public float cyclicR;// positive = roll right
-
 	public string theStr = "";
 
-	public SwashPlate(IMyShipController controller, Rotor rA, Rotor rB, IMyMotorStator rotorShaft) {
-		this.rA = rA;
-		this.rB = rB;
+	public SwashPlate(IMyShipController controller, IMyMotorStator[] blades, IMyMotorStator rotorShaft) {
 		this.controller = controller;
 		this.rotorShaft = rotorShaft;
-		this.collective = 0;
-		this.cyclicF = 0;
-		this.cyclicR = 0;
 
-		contMat = controller.WorldMatrix;
-		shafMat = rotorShaft.WorldMatrix;
-		shafMatI = MatrixD.Invert(shafMat);
+		this.blades = new List<Rotor>();
+		foreach(IMyMotorStator motor in blades) {
+			Rotor current = new Rotor(controller, motor);
 
-		aVec = baseVector(aVec, rA.axis);
-		bVec = baseVector(bVec, rB.axis);
+			current.setForwardDir(Vector3D.Cross(rotorShaft.WorldMatrix.Up, motor.WorldMatrix.Up));
+			current.headOffset = current.localForwardDir; //no offset
+
+			this.blades.Add(current);
+		}
 	}
 
-	// gets a vector in the direction the rotor should be moving
-	public Vector3D baseVector(Vector3D vec, Vector3D rotAxis) {
-		return Vector3D.Normalize(Vector3D.Cross(shafMat.Up, rotAxis));
-	}
+	// should keep controls between -1 and 1
+	public void go(Controls cont) {
+		theStr = "collective: " + cont.collective;
+		theStr += "\ncyclicF: " + cont.cyclicF;
+		theStr += "\ncyclicR: " + cont.cyclicR;
 
-	public void go() {
-		theStr = "collective: " + collective;
-		theStr += "\ncyclicF: " + cyclicF;
-		theStr += "\ncyclicR: " + cyclicR;
-		Vector3D conRi = Vector3D.Transform(contMat.Right, shafMatI);
-		Vector3D conFo = Vector3D.Transform(contMat.Forward, shafMatI);
-		// Vector3D.Transform(contMat.Right, shafMatI)
-		// Vector3D.Transform(contMat.Forward, shafMatI)
-		rA.desiredVec = aVec + collective * shafMat.Up + Vector3D.Dot(aVec, shafMat.Right) * shafMat.Up * cyclicF + Vector3D.Dot(aVec, shafMat.Forward) * shafMat.Up * cyclicR;
-		rB.desiredVec = bVec + collective * shafMat.Up + Vector3D.Dot(bVec, shafMat.Right) * shafMat.Up * cyclicF + Vector3D.Dot(bVec, shafMat.Forward) * shafMat.Up * cyclicR;
-		theStr += "\naVec: " + aVec.ToString("0.0");
-		theStr += "\naVec: " + rA.desiredVec.ToString("0.0");
-		rA.doTrig2();
-		rB.doTrig2();
+		bool first = true;
+		foreach(Rotor blade in blades) {
+			Vector3D vec =
+				// collective
+				blade.getForwardDir() + rotorShaft.WorldMatrix.Up * cont.collective +
+				// cyclic forward
+				Vector3D.Dot(blade.getForwardDir(), rotorShaft.WorldMatrix.Right) * rotorShaft.WorldMatrix.Up * cont.cyclicF +
+				// cyclic right
+				Vector3D.Dot(blade.getForwardDir(), rotorShaft.WorldMatrix.Forward) * rotorShaft.WorldMatrix.Up * cont.cyclicR;
+
+			blade.setFromVec(vec);
+
+			if(first) {
+				first = false;
+
+				theStr += "\nfirst basevec: " + blade.localForwardDir.ToString("0.0");
+				theStr += "\nfirst desired: " + vec.ToString("0.0");
+			}
+		}
 	}
 }
 
 public class Rotor {
-	public IMyMotorStator rotor;
-	// world space
-	public Vector3D desiredVec;
-	public float angle;
-	public string theString;
-	public Vector3D axis;
-	public float finalAngle;
-	public IMyShipController controller;
-	public int offset;
 
-	public Rotor(IMyShipController controller) {// make sure you get axis if you need it
-		this.controller = controller;
-	}
+	public IMyMotorStator theBlock;
+	public IMyShipController controller;
+
+	public Vector3D localForwardDir;
+	// this should be the forward direction local to the rotor head
+	public Vector3D headOffset = new Vector3D(0, 0, -1);
+
+	public string theString;
+
 
 	public Rotor(IMyShipController controller, IMyMotorStator rotor) {
 		this.controller = controller;
-		this.rotor = rotor;
-		getAxis();
+		this.theBlock = rotor;
 	}
 
-	// sets the rotor offset from the name
-	public void checkRotName() {
-		int nameA = rotor.CustomName.IndexOf("%(");
-		int nameB = rotor.CustomName.IndexOf(")");
-		if(nameA != -1 && nameB > nameA) {
-			string offsetStr = rotor.CustomName.Substring(nameA + 2, (nameB - nameA) - 2);
-			if (Int32.TryParse(offsetStr, out offset)) {
-				// theString = "\noffset for " + rotor.CustomName + " set to " + offset + " degrees";
-			}
-			else {
-				// theString = "\nERROR: rotor offset could not be parsed";
-			}
-		}
+	// sets the forward direction from world space
+	public void setForwardDir(Vector3D worldForwardDir) {
+		this.localForwardDir = worldForwardDir.TransformNormal(MatrixD.Invert(theBlock.WorldMatrix));
 	}
 
-	// gets the rotor
-	public void getAxis() {
-		theString = "\n" + rotor.CustomName + ": ";
-		MatrixD rotorMatrix = rotor.WorldMatrix;
-
-		axis = rotorMatrix.Up;// axis is in world space
-		if(axis.Length() != 1) {// TODO: remove this and check if it still works
-			axis.Normalize();
-		}
+	// gets the forward direction in world space
+	public Vector3D getForwardDir() {
+		return localForwardDir.TransformNormal(theBlock.WorldMatrix);
 	}
 
-	// sets the angle to be in the direction of the vector
-	public void doTrig() {
-		// transform by matrix to go to world space
-		// transform by matrixI to go to local space
-		MatrixD rotorMatrix = rotor.WorldMatrix;
-		MatrixD rotorMatrixI = MatrixD.Invert(rotorMatrix);
+	/*===| Part of Rotation By Equinox on the KSH discord channel. |===*/
+	private void PointRotorAtVector(IMyMotorStator rotor, Vector3D targetDirection, Vector3D currentDirection, float multiplier) {
+		float maxRotorRPM = theBlock.GetMaximum<float>("Velocity");
+		double errorScale = Math.PI * maxRotorRPM;
 
-		// transpose is cheaper inverse, but only use it with orientation. no translation
-		// Matrix.Transpose(ref rotorMatrix, out rotorMatrix);
+		Vector3D angle = Vector3D.Cross(targetDirection, currentDirection);
+		// Project onto rotor
+		float err = (float)angle.Dot(rotor.WorldMatrix.Up);
 
-		// this.desiredVec.Normalize();
-
-		// turn desiredVec from world space to rotor local space
-		theString += "\ndesiredVec: \n" + desiredVec.ToString("0.0");
-		desiredVec = Vector3D.Transform(desiredVec, rotorMatrixI);
-		theString += "\ndesiredVec: \n" + desiredVec.ToString("0.0");
-		desiredVec.Normalize();
-		theString += "\ndesiredVec: \n" + desiredVec.ToString("0.0");
-		// theString += "\nlength: " + desiredVec.Length();
-
-		this.angle = (float)Math.Atan(desiredVec.Z/desiredVec.X);
-		if(desiredVec.X > 0) {
-			if(desiredVec.Z > 0) {
-				// x+ z+
-				theString += "\nx+ z+";
-				this.angle = -(float)(2*Math.PI - this.angle);
-			} else {
-				// x+ z-
-				theString += "\nx+ z-";
-			}
+		err *= (float)(errorScale * multiplier);
+		// errStr += $"\nSETTING ROTOR TO {err:N2}";
+		if (err > maxRotorRPM) {
+			rotor.TargetVelocityRPM = maxRotorRPM;
+		} else if ((err*-1) > maxRotorRPM) {
+			rotor.TargetVelocityRPM = (maxRotorRPM * -1);
 		} else {
-			if(desiredVec.Z > 0) {
-				// x- z+
-				theString += "\nx- z+";
-				this.angle = (float)(Math.PI + this.angle);
-			} else {
-				// x- z-
-				theString += "\nx- z-";
-				this.angle = (float)(Math.PI + this.angle);
-			}
+			rotor.TargetVelocityRPM = err;
 		}
-		theString += "\nangle: " + Math.Round(180*this.angle/Math.PI, 1);
-
-		setPos(angle + (float)(offset * Math.PI / 180));
 	}
 
-	public double angleBetweenCos(Vector3D a, Vector3D b) {
-		double dot = Vector3D.Dot(a, b);
-		double Length = a.Length() * b.Length();
-		return dot/Length;
+	// this sets the rotor to face the desired direction in worldspace
+	// desiredVec doesn't have to be in-line with the rotors plane of rotation
+	public double setFromVec(Vector3D desiredVec, float multiplier) {
+		desiredVec = desiredVec.reject(theBlock.WorldMatrix.Up);
+		desiredVec.Normalize();
+		Vector3D currentDir = Vector3D.TransformNormal(this.headOffset, theBlock.Top.WorldMatrix);
+		PointRotorAtVector(theBlock, desiredVec, currentDir/*theBlock.Top.WorldMatrix.Forward*/, multiplier);
+
+		return angleBetweenCos(currentDir, desiredVec, desiredVec.Length());
 	}
 
-	public void doTrig2() {
-		desiredVec = Vector3D.Reject(desiredVec, axis);
-
-		// angle between vectors
-		float angle = (float)Math.Acos(angleBetweenCos(rotor.WorldMatrix.Forward, desiredVec));
-
-		if(Math.Acos(angleBetweenCos(rotor.WorldMatrix.Left, desiredVec)) > Math.PI/2) {
-			angle = (float)(2*Math.PI - angle);
-		}
-
-		setPos(angle + (float)(offset * Math.PI / 180));
-	}
-
-	float cutAngle(float angle) {
-		while(angle > Math.PI) {
-			angle -= 2*(float)Math.PI;
-		}
-		while(angle < -Math.PI) {
-			angle += 2*(float)Math.PI;
-		}
-		// theString += "\nnew Angle: " + Math.Round(180*angle/Math.PI, 1);
-		return angle;
-	}
-
-	void setPos(float x)//no rotor limits here
-	{
-		theString += "\nbefore cut: " + (float)Math.Round(180 * x / Math.PI);
-		x = cutAngle(x);
-		float velocity = 60;
-		// theString += "\nSetting angle to:\n" + (x * 180/Math.PI);
-		float x2 = cutAngle(rotor.Angle);
-		theString += "\nFinal Angle: " + (float)Math.Round(180 * x / Math.PI);
-		if(Math.Abs(x - x2) < Math.PI) {
-			if(x2 < x) {//dont cross origin
-				rotor.SetValue<float>("Velocity", velocity * Math.Abs(x - x2));
-			}
-			else {
-				rotor.SetValue<float>("Velocity", -velocity * Math.Abs(x - x2));
-			}
-		}
-		else {
-			//cross origin
-			if(x2 < x) {
-				rotor.SetValue<float>("Velocity", -velocity * Math.Abs(x - x2));
-			}
-			else {
-				rotor.SetValue<float>("Velocity", velocity * Math.Abs(x - x2));
-			}
-		}
+	public double setFromVec(Vector3D desiredVec) {
+		return setFromVec(desiredVec, 1);
 	}
 }
+
+
+
+
+
+
+
+
+}
+public static class CustomProgramExtensions {
+
+	public static bool IsAlive(this IMyTerminalBlock block) {
+		return block.CubeGrid.GetCubeBlock(block.Position)?.FatBlock == block;
+	}
+
+	// projects a onto b
+	public static Vector3D project(this Vector3D a, Vector3D b) {
+		double aDotB = Vector3D.Dot(a, b);
+		double bDotB = Vector3D.Dot(b, b);
+		return b * aDotB / bDotB;
+	}
+
+	public static Vector3D reject(this Vector3D a, Vector3D b) {
+		return Vector3D.Reject(a, b);
+	}
+
+	public static Vector3D normalized(this Vector3D vec) {
+		return Vector3D.Normalize(vec);
+	}
+
+	public static double dot(this Vector3D a, Vector3D b) {
+		return Vector3D.Dot(a, b);
+	}
+
+	// get movement and turn it into worldspace
+	public static Vector3D getWorldMoveIndicator(this IMyShipController cont) {
+		return Vector3D.TransformNormal(cont.MoveIndicator, cont.WorldMatrix);
+	}
+
+	public static Vector3D TransformNormal(this Vector3D vec, MatrixD mat) {
+		return Vector3D.TransformNormal(vec, mat);
+	}
+
+	public static string progressBar(this double val) {
+		char[] bar = {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '};
+		for(int i = 0; i < 10; i++) {
+			if(i <= val * 10) {
+				bar[i] = '|';
+			}
+		}
+		var str_build = new StringBuilder("[");
+		for(int i = 0; i < 10; i++) {
+			str_build.Append(bar[i]);
+		}
+		str_build.Append("]");
+		return str_build.ToString();
+	}
+
+	public static string progressBar(this float val) {
+		return ((double)val).progressBar();
+	}
+
+	public static string progressBar(this Vector3D val) {
+		return val.Length().progressBar();
+	}
+
+
+	public static Vector3D Round(this Vector3D vec, int num) {
+		return Vector3D.Round(vec, num);
+	}
+
+	public static double Round(this double val, int num) {
+		return Math.Round(val, num);
+	}
+
+	public static float Round(this float val, int num) {
+		return (float)Math.Round(val, num);
+	}
