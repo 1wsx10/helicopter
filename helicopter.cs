@@ -1,8 +1,15 @@
-public Program() {
-	Runtime.UpdateFrequency = UpdateFrequency.Update1;
-}
+// public Program() {
+// 	Runtime.UpdateFrequency = UpdateFrequency.Update1;
+// }
 
 public string log = "";
+
+public const bool swapPitchAndRoll = false;
+
+
+
+// remove unreachable code warning
+#pragma warning disable 0162
 
 int counter = 0;
 public void Main(string argument) {
@@ -17,7 +24,7 @@ public void Main(string argument) {
 
 	Echo(log);
 
-	IMyShipController controller = (IMyShipController)GridTerminalSystem.GetBlockWithName("Cockpit");
+	IMyShipController controller = (IMyShipController)GridTerminalSystem.GetBlockWithName("Cockpit Forward");
 
 	// get rotors
 	IMyMotorStator mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
@@ -25,7 +32,9 @@ public void Main(string argument) {
 
 	IMyMotorStator[] mainSwashRotors = new IMyMotorStator[] {
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor B")
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor B"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor C"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor D")
 	};
 
 	IMyMotorStator[] antiTrqRotors = new IMyMotorStator[] {
@@ -42,26 +51,20 @@ public void Main(string argument) {
 	Controls mainSwashCont = new Controls();
 	Controls antiTrqCont = new Controls();
 
-	antiTrqCont.collective = 0.25f;
-	// if(d) {
-	// 	antiTrqCont.collective = -0.5f;
-	// }
-	// if(a) {
-	// 	antiTrqCont.collective = 0.19f;
-	// }
+	antiTrqCont.collective = 0.1f;
 
 
-	float collectiveDefault = 0.45f;
+	float collectiveDefault = 0.15f;
 	float cyclicDefault = 0.3f;
 
 	mainSwashCont.collective = 0.1f;
 
-	float rollTrim = -0.008f;
+	float rollTrim = 0.005f;
 
 	antiTrqCont.collective += controller.MoveIndicator.X * collectiveDefault;
 	mainSwashCont.collective += controller.MoveIndicator.Y * collectiveDefault;
 	mainSwashCont.cyclicR += controller.MoveIndicator.Z * cyclicDefault;
-	mainSwashCont.cyclicF += controller.RollIndicator * 0.3f * cyclicDefault + rollTrim;
+	mainSwashCont.cyclicF += controller.RollIndicator * -0.3f * cyclicDefault + rollTrim;
 
 	mainSwashCont.collective *= -1;
 	// mainSwashCont.cyclicR *= -1;
@@ -72,10 +75,12 @@ public void Main(string argument) {
 	antiTrqCont.collective += controller.RotationIndicator.Y * 0.01f;
 
 
-	// temp, swap these around
-	float temp = mainSwashCont.cyclicR;
-	mainSwashCont.cyclicR = mainSwashCont.cyclicF;
-	mainSwashCont.cyclicF = temp;
+	// swap these around for multiplayer
+	if(swapPitchAndRoll) {
+		float temp = mainSwashCont.cyclicR;
+		mainSwashCont.cyclicR = mainSwashCont.cyclicF;
+		mainSwashCont.cyclicF = temp;
+	}
 
 
 
