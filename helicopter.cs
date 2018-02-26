@@ -1,10 +1,10 @@
 // public Program() {
 // 	Runtime.UpdateFrequency = UpdateFrequency.Update1;
 // }
-public const bool collective_assist = false;
-public const bool pitch_assist = false;
-public const bool roll_assist = false;
-public const bool yaw_assist = false;
+public bool collective_assist = false;
+public bool pitch_assist = true;
+public bool roll_assist = true;
+public bool yaw_assist = true;
 
 public string log = "";
 
@@ -106,6 +106,9 @@ public void Main(string argument) {
 	float rollTrim = 0.005f;
 
 
+	if(argument == "toggleYawAssist") {
+		yaw_assist = !yaw_assist;
+	}
 
 
 
@@ -117,6 +120,7 @@ public void Main(string argument) {
 
 		mainSwashCont.collective += (float)MCollective.update(controller.MoveIndicator.Y, (km.AccelerationLinearCurrent.Y / 0.5f));
 	} else {
+		MCollective = null;
 		mainSwashCont.collective += controller.MoveIndicator.Y * collectiveDefault;
 	}
 
@@ -128,6 +132,7 @@ public void Main(string argument) {
 
 		antiTrqCont.collective += (float)ATCollective.update(controller.MoveIndicator.X + controller.RotationIndicator.Y * 0.09f, (km.VelocityAngularCurrent.Y / 1f) * -1);
 	} else {
+		ATCollective = null;
 		// keyboard
 		antiTrqCont.collective += controller.MoveIndicator.X * collectiveDefault;
 		// mouse
@@ -142,6 +147,7 @@ public void Main(string argument) {
 
 		mainSwashCont.cyclicR += (float)MCyclicR.update(controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f, (km.VelocityAngularCurrent.X / 1f));
 	} else {
+		MCyclicR = null;
 		// keyboard
 		mainSwashCont.cyclicR += controller.MoveIndicator.Z * 0.3f * cyclicDefault;
 		// mouse
@@ -156,9 +162,13 @@ public void Main(string argument) {
 
 		mainSwashCont.cyclicF += (float)MCyclicF.update(controller.RollIndicator * -1, (km.VelocityAngularCurrent.Z / 1f));
 	} else {
+		MCyclicF = null;
 		mainSwashCont.cyclicF += controller.RollIndicator * -0.3f * cyclicDefault + rollTrim;
 	}
 
+	write("asdf"+mainSwashCont.cyclicF);
+
+	/*
 	write("Controls:");
 	write("Collective:" + progressBar(((
 		controller.MoveIndicator.Y
@@ -174,6 +184,8 @@ public void Main(string argument) {
 	write("Roll:      " + progressBar(((
 		controller.RollIndicator
 		) + 1)/2));
+
+	/**/
 
 	// write("velAngCurr Y");
 	// PID toPrint = ATCollective;
@@ -209,6 +221,8 @@ public void Main(string argument) {
 	// write(mainSwash.theStr);
 	// write(antiTrq.theStr);
 	Echo(mainSwash.theStr);
+	write(mainSwash.theStr);
+	write(antiTrq.theStr);
 	// write(mainSwash.blades[0].theString);
 }
 
@@ -323,8 +337,8 @@ public class PID {
 
 public struct Controls {
 	public float collective;
-	public float cyclicF;
 	public float cyclicR;
+	public float cyclicF;
 }
 
 public class SwashPlate {
