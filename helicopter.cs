@@ -1,6 +1,10 @@
 // public Program() {
 // 	Runtime.UpdateFrequency = UpdateFrequency.Update1;
 // }
+public const bool collective_assist = false;
+public const bool pitch_assist = false;
+public const bool roll_assist = false;
+public const bool yaw_assist = false;
 
 public string log = "";
 
@@ -10,6 +14,11 @@ public const bool enablePID = true;
 public float idecay = 1f;
 
 Kinematics km;
+
+PID ATCollective;
+PID MCollective;
+PID MCyclicR;
+PID MCyclicF;
 
 // remove unreachable code warning
 #pragma warning disable 0162
@@ -42,20 +51,21 @@ public void Main(string argument) {
 	{
 		km.Update(Runtime.TimeSinceLastRun.TotalSeconds);
 
-		output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
-				km.VelocityLinearCurrent.ToString("0.000\n"),
-				km.VelocityAngularCurrent.ToString("0.000\n")
+		// output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
+		// 		km.VelocityLinearCurrent.ToString("0.000\n"),
+		// 		km.VelocityAngularCurrent.ToString("0.000\n")
+		// 	);
+		output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}",
+				km.AccelerationLinearCurrent.ToString("0.00\n"),
+				km.AccelerationAngularCurrent.ToString("0.00\n")
 			);
-		output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}\n",
-				km.AccelerationLinearCurrent.ToString("0.000\n"),
-				km.AccelerationAngularCurrent.ToString("0.000\n")
-			);
-		output += string.Format("Jerk (Linear) [m/s³]\n{0}\nJerk (Angular) [rad/s³]\n{1}\n",
-				km.JerkLinearCurrent.ToString("0.000\n"),
-				km.JerkAngularCurrent.ToString("0.000\n")
-			);
+		// output += string.Format("Jerk (Linear) [m/s³]\n{0}\nJerk (Angular) [rad/s³]\n{1}\n",
+		// 		km.JerkLinearCurrent.ToString("0.000\n"),
+		// 		km.JerkAngularCurrent.ToString("0.000\n")
+		// 	);
 	}
-	write("Kinematics: \n" + output);
+	// write("Kinematics: \n" + output);
+	// write(output);
 
 
 
@@ -84,7 +94,8 @@ public void Main(string argument) {
 	Controls mainSwashCont = new Controls();
 	Controls antiTrqCont = new Controls();
 
-	antiTrqCont.collective = 0.1f;
+	antiTrqCont.collective = 0.5f;
+	antiTrq.maxValue = 4f;
 
 
 	float collectiveDefault = 0.15f;
@@ -94,18 +105,88 @@ public void Main(string argument) {
 
 	float rollTrim = 0.005f;
 
-	antiTrqCont.collective += controller.MoveIndicator.X * collectiveDefault;
-	mainSwashCont.collective += controller.MoveIndicator.Y * collectiveDefault;
-	mainSwashCont.cyclicR += controller.MoveIndicator.Z * cyclicDefault;
-	mainSwashCont.cyclicF += controller.RollIndicator * -0.3f * cyclicDefault + rollTrim;
+
+
+
+
+	// collective
+	if(collective_assist) { // this is broken
+		if(false && MCollective == null) {
+			MCollective = new PID(0.2f, 0.05f, 0.15f, this);
+		}
+
+		mainSwashCont.collective += (float)MCollective.update(controller.MoveIndicator.Y, (km.AccelerationLinearCurrent.Y / 0.5f));
+	} else {
+		mainSwashCont.collective += controller.MoveIndicator.Y * collectiveDefault;
+	}
+
+	// yaw
+	if(yaw_assist) {
+		if(ATCollective == null) {
+			ATCollective = new PID(0.2f, 0.05f, 0.15f, this);
+		}
+
+		antiTrqCont.collective += (float)ATCollective.update(controller.MoveIndicator.X + controller.RotationIndicator.Y * 0.09f, (km.VelocityAngularCurrent.Y / 1f) * -1);
+	} else {
+		// keyboard
+		antiTrqCont.collective += controller.MoveIndicator.X * collectiveDefault;
+		// mouse
+		antiTrqCont.collective += controller.RotationIndicator.Y * 0.01f;
+	}
+
+	// pitch
+	if(pitch_assist) {
+		if(MCyclicR == null) {
+			MCyclicR = new PID(0.2f, 0.05f, 0.15f, this);
+		}
+
+		mainSwashCont.cyclicR += (float)MCyclicR.update(controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f, (km.VelocityAngularCurrent.X / 1f));
+	} else {
+		// keyboard
+		mainSwashCont.cyclicR += controller.MoveIndicator.Z * 0.3f * cyclicDefault;
+		// mouse
+		mainSwashCont.cyclicR += controller.RotationIndicator.X * -0.01f;
+	}
+
+	// roll
+	if(roll_assist) {
+		if(roll_assist && MCyclicF == null) {
+			MCyclicF = new PID(0.2f, 0.05f, 0.15f, this);
+		}
+
+		mainSwashCont.cyclicF += (float)MCyclicF.update(controller.RollIndicator * -1, (km.VelocityAngularCurrent.Z / 1f));
+	} else {
+		mainSwashCont.cyclicF += controller.RollIndicator * -0.3f * cyclicDefault + rollTrim;
+	}
+
+	write("Controls:");
+	write("Collective:" + progressBar(((
+		controller.MoveIndicator.Y
+		) + 1)/2));
+	write("Pitch:     " + progressBar(((
+		controller.MoveIndicator.Z +
+		controller.RotationIndicator.X * -0.01f
+		) + 1)/2));
+	write("Yaw:       " + progressBar(((
+		controller.MoveIndicator.X +
+		controller.RotationIndicator.Y * 0.01f
+		) + 1)/2));
+	write("Roll:      " + progressBar(((
+		controller.RollIndicator
+		) + 1)/2));
+
+	// write("velAngCurr Y");
+	// PID toPrint = ATCollective;
+	// if(toPrint != null) {
+	// 	toPrint.printinfo = true;
+	// 	write(toPrint.info);
+	// }
+	// write($"output: {antiTrqCont.collective.Round(2)}");
+
 
 	mainSwashCont.collective *= -1;
 	// mainSwashCont.cyclicR *= -1;
 	// mainSwashCont.cyclicF *= -1;
-
-	// mouse control
-	mainSwashCont.cyclicR += controller.RotationIndicator.X * -0.01f;
-	antiTrqCont.collective += controller.RotationIndicator.Y * 0.01f;
 
 
 	// swap these around for multiplayer
@@ -155,6 +236,21 @@ public void write(string str) {
 	}
 }
 
+public static string progressBar(double val) {
+	char[] bar = {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '};
+	for(int i = 0; i < 10; i++) {
+		if(i <= val * 10) {
+			bar[i] = '|';
+		}
+	}
+	var str_build = new StringBuilder("[");
+	for(int i = 0; i < 10; i++) {
+		str_build.Append(bar[i]);
+	}
+	str_build.Append("]");
+	return str_build.ToString();
+}
+
 // gets cos(angle between 2 vectors)
 // cos returns a number between 0 and 1
 // use Acos to get the angle
@@ -184,6 +280,9 @@ public class PID {
 	private double lasterror = 0;
 	private double integral = 0;
 
+	public string info = "";
+	public bool printinfo = false;
+
 	public PID(Program prog) {
 		this.prog = prog;
 	}
@@ -212,6 +311,12 @@ public class PID {
 		if(!enablePID) {
 			return error;
 		}
+		if(printinfo) {
+			info =
+				$@"P: {error * pmul}
+				I: {integral * imul}
+				D: {-1 * derivative * dmul}";
+		}
 		return error * pmul + integral * imul + -1 * derivative * dmul;
 	}
 }
@@ -231,6 +336,8 @@ public class SwashPlate {
 
 	public string theStr = "";
 
+	public float maxValue = 1f;
+
 	public SwashPlate(IMyShipController controller, IMyMotorStator[] blades, IMyMotorStator rotorShaft) {
 		this.controller = controller;
 		this.rotorShaft = rotorShaft;
@@ -248,6 +355,23 @@ public class SwashPlate {
 
 	// should keep controls between -1 and 1
 	public void go(Controls cont) {
+
+		if(cont.collective > maxValue) {
+			cont.collective = maxValue;
+		} else if(cont.collective < -maxValue) {
+			cont.collective = -maxValue;
+		}
+		if(cont.cyclicR > maxValue) {
+			cont.cyclicR = maxValue;
+		} else if(cont.cyclicR < -maxValue) {
+			cont.cyclicR = -maxValue;
+		}
+		if(cont.cyclicF > maxValue) {
+			cont.cyclicF = maxValue;
+		} else if(cont.cyclicF < -maxValue) {
+			cont.cyclicF = -maxValue;
+		}
+
 		theStr = "collective: " + cont.collective;
 		theStr += "\ncyclicF: " + cont.cyclicF;
 		theStr += "\ncyclicR: " + cont.cyclicR;
