@@ -6,7 +6,10 @@ public string log = "";
 
 public const bool swapPitchAndRoll = false;
 
+public const bool enablePID = true;
+public float idecay = 1f;
 
+Kinematics km;
 
 // remove unreachable code warning
 #pragma warning disable 0162
@@ -22,9 +25,39 @@ public void Main(string argument) {
 		log += $"Time was greater than 0.016: \n\t{Runtime.TimeSinceLastRun.Milliseconds}ms";
 	}
 
+
+
+
 	Echo(log);
 
 	IMyShipController controller = (IMyShipController)GridTerminalSystem.GetBlockWithName("Cockpit Forward");
+
+
+	string output ="";
+	if(km == null)
+	{
+		km = new Kinematics((IMyEntity)controller, null);
+	}
+	else
+	{
+		km.Update(Runtime.TimeSinceLastRun.TotalSeconds);
+
+		output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
+				km.VelocityLinearCurrent.ToString("0.000\n"),
+				km.VelocityAngularCurrent.ToString("0.000\n")
+			);
+		output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}\n",
+				km.AccelerationLinearCurrent.ToString("0.000\n"),
+				km.AccelerationAngularCurrent.ToString("0.000\n")
+			);
+		output += string.Format("Jerk (Linear) [m/s³]\n{0}\nJerk (Angular) [rad/s³]\n{1}\n",
+				km.JerkLinearCurrent.ToString("0.000\n"),
+				km.JerkAngularCurrent.ToString("0.000\n")
+			);
+	}
+	write("Kinematics: \n" + output);
+
+
 
 	// get rotors
 	IMyMotorStator mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
@@ -92,10 +125,10 @@ public void Main(string argument) {
 
 
 	// text
-	write(mainSwash.theStr);
-	write(antiTrq.theStr);
+	// write(mainSwash.theStr);
+	// write(antiTrq.theStr);
 	Echo(mainSwash.theStr);
-	write(mainSwash.blades[0].theString);
+	// write(mainSwash.blades[0].theString);
 }
 
 public List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
@@ -138,6 +171,49 @@ public static double angleBetweenCos(Vector3D a, Vector3D b) {
 public static double angleBetweenCos(Vector3D a, Vector3D b, double len) {
 	double dot = Vector3D.Dot(a, b);
 	return dot/len;
+}
+
+public class PID {
+
+	public Program prog;
+
+	public float pmul = 1;
+	public float imul = 0;
+	public float dmul = 0;
+
+	private double lasterror = 0;
+	private double integral = 0;
+
+	public PID(Program prog) {
+		this.prog = prog;
+	}
+
+	public PID(float proportional, float integral, float derivative, Program prog) : this(prog) {
+		this.pmul = proportional;
+		this.imul = integral;
+		this.dmul = derivative;
+	}
+
+	public double update(double setpoint, double measured) {
+		double error = setpoint - measured;
+		return update(error);
+	}
+
+	public double update(double error) {
+		double deltaT = prog.Runtime.TimeSinceLastRun.TotalMilliseconds;
+		deltaT = (deltaT == 0 ? 1 : deltaT);
+
+		integral *= prog.idecay;
+		integral += error/deltaT;
+		double derivative = (error - lasterror) / deltaT;
+		lasterror = error;
+
+		// return error * pmul + integral * imul + derivative * dmul;
+		if(!enablePID) {
+			return error;
+		}
+		return error * pmul + integral * imul + -1 * derivative * dmul;
+	}
 }
 
 public struct Controls {
@@ -266,6 +342,153 @@ public class Rotor {
 
 
 
+/*
+
+	Kinematics
+	- release 1 (by plaYer2k)
+	- Forum URL: http://forum.keenswh.com/threads/kinematics-kinematic-measurement-helper.7379961/
+
+	This is a simple measurement class for linear and angular property transitions between continuous states.
+	It offers the following properties(for more details, check the properties section within the Kinematics class):
+		transition [m or rad] - the change from one state to another
+		velocity [m/s or rad/s] - the first derivation of transition over time
+		acceleration [m/s² or rad/s²] - the second derivation of transition over time
+		jerk [m/s³ or rad/s³] - the third derivation of transition over time
+
+	It can be used continously (one per game tick or second) as well as from one well defined state to another (irregular intervals).
+
+
+
+	To initialize the Kinematics class you need the two parameters anchor and reference.
+
+	The anchor is the entity whichs properties shall be checked. This has to be non-null.
+
+	The reference is an optional entity to whichs orientation the anchor entity will be considered. This can be null.
+
+	As example if you would use an anchor and no reference, you would track the anchors position in worldspace.
+	If you however have anchor and reference present, you track the anchor relative to the reference.
+
+	In the first case, you have the simpliest case. This is best used when you want to know your own ships properties.
+
+	The second case however is useful for multi-grid applications. You could have a rotor as reference and its attached grid as anchor.
+	In that case you could easily measure the rotations translation, speed, velocity and jerk.
+
+	Alternative applications are:
+		- tracking of astronauts
+		- tracking of floating objects
+		- tracking of friends/foes relative to you
+
+*/
+public class Kinematics
+{
+
+	public VRage.Game.ModAPI.Ingame.IMyEntity Anchor { get { return _anchor; } }
+	public VRage.Game.ModAPI.Ingame.IMyEntity Reference { get { return _reference; } set { _reference = value; } }
+
+	public MatrixD StateCurrent { get { return _stateCurrent; } }
+	public MatrixD StateLast { get { return _stateLast; } }
+
+	public MatrixD Transition { get { return _transition; } }
+
+	public Vector3D TransitionLinearCurrent { get { return _transitionLinearCurrent; } }
+	public Vector3D TransitionAngularCurrent { get { return _transitionAngularCurrent; } }
+	public Vector3D TransitionLinearLast { get { return _transitionLinearLast; } }
+	public Vector3D TransitionAngularLast { get { return _transitionAngularLast; } }
+
+	public Vector3D VelocityLinearCurrent { get { return _velocityLinearCurrent; } }
+	public Vector3D VelocityAngularCurrent { get { return _velocityAngularCurrent; } }
+	public Vector3D VelocityLinearLast { get { return _velocityLinearLast; } }
+	public Vector3D VelocityAngularLast { get { return _velocityAngularLast; } }
+
+	public Vector3D AccelerationLinearCurrent { get { return _accelerationLinearCurrent; } }
+	public Vector3D AccelerationAngularCurrent { get { return _accelerationAngularCurrent; } }
+	public Vector3D AccelerationLinearLast { get { return _accelerationLinearLast; } }
+	public Vector3D AccelerationAngularLast { get { return _accelerationAngularLast; } }
+
+	public Vector3D JerkLinearCurrent { get { return _jerkLinearCurrent; } }
+	public Vector3D JerkAngularCurrent { get { return _jerkAngularCurrent; } }
+	public Vector3D JerkLinearLast { get { return _jerkLinearLast; } }
+	public Vector3D JerkAngularLast { get { return _jerkAngularLast; } }
+
+	// ~constants
+	static readonly Vector3D VectorZero = new Vector3D(0, 0, 0);
+	static readonly Vector3D VectorX = new Vector3D(1, 0, 0);
+	static readonly Vector3D VectorY = new Vector3D(0, 1, 0);
+	static readonly Vector3D VectorZ = new Vector3D(0, 0, 1);
+
+	// Anchor and reference entities
+	VRage.Game.ModAPI.Ingame.IMyEntity _anchor, _reference;
+
+	// The stats current and last matrix. That is the orientation of the anchor relative to the reference
+	MatrixD _stateCurrent, _stateLast;
+	// The transition from the last state to the current state
+	MatrixD _transition;
+	// linear/angular transition values
+	Vector3D _transitionLinearCurrent, _transitionAngularCurrent, _transitionLinearLast, _transitionAngularLast;
+	// linear/angular velocity values
+	Vector3D _velocityLinearCurrent, _velocityAngularCurrent, _velocityLinearLast, _velocityAngularLast;
+	// linear/angular acceleration values
+	Vector3D _accelerationLinearCurrent, _accelerationAngularCurrent, _accelerationLinearLast, _accelerationAngularLast;
+	// linear/angular jerk values
+	Vector3D _jerkLinearCurrent, _jerkAngularCurrent, _jerkLinearLast, _jerkAngularLast;
+
+	public Kinematics(VRage.Game.ModAPI.Ingame.IMyEntity anchor, VRage.Game.ModAPI.Ingame.IMyEntity reference)
+	{
+		if(anchor == null)
+			throw new Exception("Kinematics: anchor is null");
+
+		this._anchor = anchor;
+		this._reference = reference;
+
+		if(reference == null)
+			_transition = this._anchor.WorldMatrix;
+		else
+			_transition = this._anchor.WorldMatrix * MatrixD.Invert(this._reference.WorldMatrix);
+		this._stateCurrent = this._stateLast = _transition;
+
+		this._transitionLinearLast = this._transitionAngularLast = this._transitionLinearCurrent = this._transitionAngularCurrent = VectorZero;
+		this._velocityLinearCurrent = this._velocityAngularCurrent = this._velocityLinearLast = this._velocityAngularLast = VectorZero;
+		this._accelerationLinearCurrent = this._accelerationAngularCurrent = this._accelerationLinearLast = this._accelerationAngularLast = VectorZero;
+		this._jerkLinearCurrent = this._jerkAngularCurrent = this._jerkLinearLast = this._jerkAngularLast = VectorZero;
+	}
+
+	public void Update(double deltaT)
+	{
+		this._transition = this._reference == null ? this._anchor.WorldMatrix : this._anchor.WorldMatrix * MatrixD.Invert(this._reference.WorldMatrix);
+		this._stateLast = this._stateCurrent;
+		this._stateCurrent = _transition;
+
+		_transition = this._stateCurrent * MatrixD.Invert(this._stateLast);
+
+		this._transitionLinearLast = this._transitionLinearCurrent;
+		this._transitionLinearCurrent = _transition.Translation;
+
+		this._transitionAngularLast = this._transitionAngularCurrent;
+		this._transitionAngularCurrent = new Vector3D(
+				System.Math.Asin(Vector3D.Dot(_transition.Up, VectorZ)),
+				System.Math.Asin(Vector3D.Dot(_transition.Backward, VectorX)),
+				System.Math.Asin(Vector3D.Dot(_transition.Right, VectorY))
+			);
+
+		this._velocityLinearLast = this._velocityLinearCurrent;
+		this._velocityLinearCurrent = this._transitionLinearCurrent / deltaT;
+
+		this._velocityAngularLast = this._velocityAngularCurrent;
+		this._velocityAngularCurrent = this._transitionAngularCurrent / deltaT;
+
+		this._accelerationLinearLast = this._accelerationLinearCurrent;
+		this._accelerationLinearCurrent = (this._velocityLinearCurrent - this._velocityLinearLast) / deltaT;
+
+		this._accelerationAngularLast = this._accelerationAngularCurrent;
+		this._accelerationAngularCurrent = (this._velocityAngularCurrent - this._velocityAngularLast) / deltaT;
+
+		this._jerkLinearLast = this._jerkLinearCurrent;
+		this._jerkLinearCurrent = (this._accelerationLinearCurrent - this._accelerationLinearLast) / deltaT;
+
+		this._jerkAngularLast = this._jerkAngularCurrent;
+		this._jerkAngularCurrent = (this._accelerationAngularCurrent - this._accelerationAngularLast) / deltaT;
+	}
+}
 
 
 }
