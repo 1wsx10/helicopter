@@ -13,7 +13,7 @@ public const bool swapPitchAndRoll = false;
 public const bool enablePID = true;
 public float idecay = 1f;
 
-Kinematics km;
+Kinematics ShipIMU;
 
 PID ATCollective;
 PID MCollective;
@@ -43,25 +43,25 @@ public void Main(string argument) {
 
 
 	string output ="";
-	if(km == null)
+	if(ShipIMU == null)
 	{
-		km = new Kinematics((IMyEntity)controller, null);
+		ShipIMU = new Kinematics((IMyEntity)controller, null);
 	}
 	else
 	{
-		km.Update(Runtime.TimeSinceLastRun.TotalSeconds);
+		ShipIMU.Update(Runtime.TimeSinceLastRun.TotalSeconds);
 
 		// output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
-		// 		km.VelocityLinearCurrent.ToString("0.000\n"),
-		// 		km.VelocityAngularCurrent.ToString("0.000\n")
+		// 		ShipIMU.VelocityLinearCurrent.ToString("0.000\n"),
+		// 		ShipIMU.VelocityAngularCurrent.ToString("0.000\n")
 		// 	);
 		output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}",
-				km.AccelerationLinearCurrent.ToString("0.00\n"),
-				km.AccelerationAngularCurrent.ToString("0.00\n")
+				ShipIMU.AccelerationLinearCurrent.ToString("0.00\n"),
+				ShipIMU.AccelerationAngularCurrent.ToString("0.00\n")
 			);
 		// output += string.Format("Jerk (Linear) [m/s³]\n{0}\nJerk (Angular) [rad/s³]\n{1}\n",
-		// 		km.JerkLinearCurrent.ToString("0.000\n"),
-		// 		km.JerkAngularCurrent.ToString("0.000\n")
+		// 		ShipIMU.JerkLinearCurrent.ToString("0.000\n"),
+		// 		ShipIMU.JerkAngularCurrent.ToString("0.000\n")
 		// 	);
 	}
 	// write("Kinematics: \n" + output);
@@ -120,7 +120,7 @@ public void Main(string argument) {
 			MCollective = new PID(0.2f, 0.05f, 0.15f, this);
 		}
 
-		mainSwashCont.collective += (float)MCollective.update(controller.MoveIndicator.Y, (km.AccelerationLinearCurrent.Y / 0.5f));
+		mainSwashCont.collective += (float)MCollective.update(controller.MoveIndicator.Y, (ShipIMU.AccelerationLinearCurrent.Y / 0.5f));
 	} else {
 		MCollective = null;
 		mainSwashCont.collective += controller.MoveIndicator.Y * collectiveDefault;
@@ -138,7 +138,7 @@ public void Main(string argument) {
 		ATCollective.iLimit = 10;
 		ATCollective.ClampI = true;
 
-		antiTrqCont.collective += (float)ATCollective.update(controller.MoveIndicator.X + controller.RotationIndicator.Y * 0.09f, (km.VelocityAngularCurrent.Y / 1f) * -1);
+		antiTrqCont.collective += (float)ATCollective.update(controller.MoveIndicator.X + controller.RotationIndicator.Y * 0.09f, (ShipIMU.VelocityAngularCurrent.Y / 1f) * -1);
 	} else {
 		ATCollective = null;
 		// keyboard
@@ -153,7 +153,7 @@ public void Main(string argument) {
 			MCyclicR = new PID(0.2f, 0.05f, 0.15f, this);
 		}
 
-		mainSwashCont.cyclicR += (float)MCyclicR.update(controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f, (km.VelocityAngularCurrent.X / 1f));
+		mainSwashCont.cyclicR += (float)MCyclicR.update(controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f, (ShipIMU.VelocityAngularCurrent.X / 1f));
 	} else {
 		MCyclicR = null;
 		// keyboard
@@ -168,7 +168,7 @@ public void Main(string argument) {
 			MCyclicF = new PID(0.2f, 0.05f, 0.15f, this);
 		}
 
-		mainSwashCont.cyclicF += (float)MCyclicF.update(controller.RollIndicator * -1, (km.VelocityAngularCurrent.Z / 1f));
+		mainSwashCont.cyclicF += (float)MCyclicF.update(controller.RollIndicator * -1, (ShipIMU.VelocityAngularCurrent.Z / 1f));
 	} else {
 		MCyclicF = null;
 		mainSwashCont.cyclicF += controller.RollIndicator * -0.3f * cyclicDefault + rollTrim;
