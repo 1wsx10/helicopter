@@ -132,6 +132,12 @@ public void Main(string argument) {
 			ATCollective = new PID(0.2f, 0.05f, 0.15f, this);
 		}
 
+		ATCollective.printinfo = true;
+		write(ATCollective.info);
+
+		ATCollective.iLimit = 10;
+		ATCollective.ClampI = true;
+
 		antiTrqCont.collective += (float)ATCollective.update(controller.MoveIndicator.X + controller.RotationIndicator.Y * 0.09f, (km.VelocityAngularCurrent.Y / 1f) * -1);
 	} else {
 		ATCollective = null;
@@ -168,7 +174,7 @@ public void Main(string argument) {
 		mainSwashCont.cyclicF += controller.RollIndicator * -0.3f * cyclicDefault + rollTrim;
 	}
 
-	write("asdf"+mainSwashCont.cyclicF);
+	// write("asdf"+mainSwashCont.cyclicF);
 
 	/*
 	write("Controls:");
@@ -223,7 +229,7 @@ public void Main(string argument) {
 	// write(mainSwash.theStr);
 	// write(antiTrq.theStr);
 	Echo(mainSwash.theStr);
-	write(mainSwash.theStr);
+	// write(mainSwash.theStr);
 	write(antiTrq.theStr);
 	// write(mainSwash.blades[0].theString);
 }
@@ -285,6 +291,7 @@ public static double angleBetweenCos(Vector3D a, Vector3D b, double len) {
 	return dot/len;
 }
 
+
 public class PID {
 
 	public Program prog;
@@ -295,6 +302,9 @@ public class PID {
 
 	private double lasterror = 0;
 	private double integral = 0;
+
+	public double iLimit = 0;
+	public bool ClampI = false;
 
 	public string info = "";
 	public bool printinfo = false;
@@ -315,6 +325,8 @@ public class PID {
 	}
 
 	public double update(double error) {
+		if(!enablePID) return error;
+
 		double deltaT = prog.Runtime.TimeSinceLastRun.TotalMilliseconds;
 		deltaT = (deltaT == 0 ? 1 : deltaT);
 
@@ -323,10 +335,10 @@ public class PID {
 		double derivative = (error - lasterror) / deltaT;
 		lasterror = error;
 
-		// return error * pmul + integral * imul + derivative * dmul;
-		if(!enablePID) {
-			return error;
+		if(ClampI) {
+			integral = Clamp(integral, iLimit, -1 * iLimit);
 		}
+
 		if(printinfo) {
 			info =
 				$@"P: {error * pmul}
@@ -334,6 +346,32 @@ public class PID {
 				D: {-1 * derivative * dmul}";
 		}
 		return error * pmul + integral * imul + -1 * derivative * dmul;
+	}
+
+	public static T Clamp<T>(T val, T a, T b) where T : IComparable<T> {
+		T max;
+		T min;
+
+		int comp = a.CompareTo(b);
+		if(comp > 0) {
+			max = a;
+			min = b;
+		} else if(comp < 0) {
+			max = b;
+			min = a;
+		} else {
+			return a;
+		}
+
+		if(val.CompareTo(max) > 0) {
+			val = max;
+		}
+
+		if(val.CompareTo(min) < 0) {
+			val = min;
+		}
+
+		return val;
 	}
 }
 
@@ -351,6 +389,7 @@ public class SwashPlate {
 	public IMyMotorStator rotorShaft;
 
 	public string theStr = "";
+	public bool printinfo = false;
 
 	public float maxValue = 1f;
 
@@ -371,6 +410,9 @@ public class SwashPlate {
 
 	// should keep controls between -1 and 1
 	public void go(Controls cont) {
+		if(printinfo) {
+			theStr = "";
+		}
 
 		if(cont.collective > maxValue) {
 			cont.collective = maxValue;
@@ -388,9 +430,11 @@ public class SwashPlate {
 			cont.cyclicF = -maxValue;
 		}
 
-		theStr = "collective: " + cont.collective;
-		theStr += "\ncyclicF: " + cont.cyclicF;
-		theStr += "\ncyclicR: " + cont.cyclicR;
+		if(printinfo) {
+			theStr += "collective: " + cont.collective;
+			theStr += "\ncyclicF: " + cont.cyclicF;
+			theStr += "\ncyclicR: " + cont.cyclicR;
+		}
 
 		bool first = true;
 		foreach(Rotor blade in blades) {
@@ -407,8 +451,10 @@ public class SwashPlate {
 			if(first) {
 				first = false;
 
-				theStr += "\nfirst basevec: " + blade.localForwardDir.ToString("0.0");
-				theStr += "\nfirst desired: " + vec.ToString("0.0");
+				if(printinfo) {
+					theStr += "\nfirst basevec: " + blade.localForwardDir.ToString("0.0");
+					theStr += "\nfirst desired: " + vec.ToString("0.0");
+				}
 			}
 		}
 	}
