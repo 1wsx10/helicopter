@@ -1,6 +1,4 @@
-// public Program() {
-// 	Runtime.UpdateFrequency = UpdateFrequency.Update1;
-// }
+
 public bool collective_assist = false;
 public bool pitch_assist = true;
 public bool roll_assist = true;
@@ -56,10 +54,10 @@ public void Main(string argument) {
 	{
 		ShipIMU.Update(Runtime.TimeSinceLastRun.TotalSeconds);
 
-		// output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
-		// 		ShipIMU.VelocityLinearCurrent.ToString("0.000\n"),
-		// 		ShipIMU.VelocityAngularCurrent.ToString("0.000\n")
-		// 	);
+		output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
+				ShipIMU.VelocityLinearCurrent.ToString("0.000\n"),
+				ShipIMU.VelocityAngularCurrent.ToString("0.000\n")
+			);
 		// output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}",
 		// 		ShipIMU.AccelerationLinearCurrent.ToString("0.00\n"),
 		// 		ShipIMU.AccelerationAngularCurrent.ToString("0.00\n")
@@ -69,8 +67,7 @@ public void Main(string argument) {
 		// 		ShipIMU.JerkAngularCurrent.ToString("0.000\n")
 		// 	);
 	}
-	// write("Kinematics: \n" + output);
-	// write(output);
+	write(output);
 
 
 
@@ -86,12 +83,7 @@ public void Main(string argument) {
 		tShaft.TargetVelocityRad = (float)mainRotorVelocity.VelocityAngularCurrent.Y;
 
 
-		// output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
-		// 		mainRotorVelocity.VelocityLinearCurrent.ToString("0.000\n"),
-		// 		mainRotorVelocity.VelocityAngularCurrent.ToString("0.000\n")
-		// 	);
 	}
-	// write(output);
 
 	IMyMotorStator[] mainSwashRotors = new IMyMotorStator[] {
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"),
@@ -155,7 +147,7 @@ public void Main(string argument) {
 		ATCollective.printinfo = true;
 		write(ATCollective.info);
 
-		ATCollective.iLimit = 10;
+		ATCollective.iLimit = 8;
 		ATCollective.ClampI = true;
 
 		antiTrqCont.collective += (float)ATCollective.update(controller.MoveIndicator.X + controller.RotationIndicator.Y * 0.09f, (ShipIMU.VelocityAngularCurrent.Y / 1f) * -1);
@@ -189,11 +181,6 @@ public void Main(string argument) {
 			MCyclicF = new PID(0.2f, 0.05f, 0.15f, this);
 		}
 
-		// write("X"+ShipIMU.AccelerationAngularCurrent.X);
-		// write("Y"+ShipIMU.AccelerationAngularCurrent.Y);
-		// write("Z"+ShipIMU.AccelerationAngularCurrent.Z);
-
-
 		// try countering angular acceleration
 		// mainSwashCont.cyclicF += (float)ShipIMU.AccelerationAngularCurrent.Z * -0.03f;
 		// that was terrible, try derivative of controls instead
@@ -210,64 +197,13 @@ public void Main(string argument) {
 
 
 
-	// write("asdf"+mainSwashCont.cyclicF);
-
-	/*
-	write("Controls:");
-	write("Collective:" + progressBar(((
-		controller.MoveIndicator.Y
-		) + 1)/2));
-	write("Pitch:     " + progressBar(((
-		controller.MoveIndicator.Z +
-		controller.RotationIndicator.X * -0.01f
-		) + 1)/2));
-	write("Yaw:       " + progressBar(((
-		controller.MoveIndicator.X +
-		controller.RotationIndicator.Y * 0.01f
-		) + 1)/2));
-	write("Roll:      " + progressBar(((
-		controller.RollIndicator
-		) + 1)/2));
-
-	/**/
-
-	// write("velAngCurr Y");
-	// PID toPrint = ATCollective;
-	// if(toPrint != null) {
-	// 	toPrint.printinfo = true;
-	// 	write(toPrint.info);
-	// }
-	// write($"output: {antiTrqCont.collective.Round(2)}");
-
-
 	mainSwashCont.collective *= -1;
-	// mainSwashCont.cyclicR *= -1;
-	// mainSwashCont.cyclicF *= -1;
-
-
-	// swap these around for multiplayer
-	if(swapPitchAndRoll) {
-		float temp = mainSwashCont.cyclicR;
-		mainSwashCont.cyclicR = mainSwashCont.cyclicF;
-		mainSwashCont.cyclicF = temp;
-	}
-
-
-
-	// TODO: roll stability
 
 
 	mainSwash.go(mainSwashCont);
 	antiTrq.go(antiTrqCont);
 
 
-	// text
-	// write(mainSwash.theStr);
-	// write(antiTrq.theStr);
-	Echo(mainSwash.theStr);
-	// write(mainSwash.theStr);
-	write(antiTrq.theStr);
-	// write(mainSwash.blades[0].theString);
 }
 
 public List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
