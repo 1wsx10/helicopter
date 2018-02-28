@@ -14,6 +14,7 @@ public const bool enablePID = true;
 public float idecay = 1f;
 
 Kinematics ShipIMU;
+Kinematics mainRotorVelocity;
 
 PID ATCollective;
 PID MCollective;
@@ -55,10 +56,10 @@ public void Main(string argument) {
 		// 		ShipIMU.VelocityLinearCurrent.ToString("0.000\n"),
 		// 		ShipIMU.VelocityAngularCurrent.ToString("0.000\n")
 		// 	);
-		output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}",
-				ShipIMU.AccelerationLinearCurrent.ToString("0.00\n"),
-				ShipIMU.AccelerationAngularCurrent.ToString("0.00\n")
-			);
+		// output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}",
+		// 		ShipIMU.AccelerationLinearCurrent.ToString("0.00\n"),
+		// 		ShipIMU.AccelerationAngularCurrent.ToString("0.00\n")
+		// 	);
 		// output += string.Format("Jerk (Linear) [m/s³]\n{0}\nJerk (Angular) [rad/s³]\n{1}\n",
 		// 		ShipIMU.JerkLinearCurrent.ToString("0.000\n"),
 		// 		ShipIMU.JerkAngularCurrent.ToString("0.000\n")
@@ -72,6 +73,21 @@ public void Main(string argument) {
 	// get rotors
 	IMyMotorStator mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
 	IMyMotorStator tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor");
+
+	if(mainRotorVelocity == null) {
+		mainRotorVelocity = new Kinematics(mShaft, mShaft.Top);
+	} else {
+
+		mainRotorVelocity.Update(Runtime.TimeSinceLastRun.TotalSeconds);
+		tShaft.TargetVelocityRad = (float)mainRotorVelocity.VelocityAngularCurrent.Y;
+
+
+		// output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
+		// 		mainRotorVelocity.VelocityLinearCurrent.ToString("0.000\n"),
+		// 		mainRotorVelocity.VelocityAngularCurrent.ToString("0.000\n")
+		// 	);
+	}
+	// write(output);
 
 	IMyMotorStator[] mainSwashRotors = new IMyMotorStator[] {
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"),
@@ -132,8 +148,8 @@ public void Main(string argument) {
 			ATCollective = new PID(0.2f, 0.05f, 0.15f, this);
 		}
 
-		ATCollective.printinfo = true;
-		write(ATCollective.info);
+		// ATCollective.printinfo = true;
+		// write(ATCollective.info);
 
 		ATCollective.iLimit = 10;
 		ATCollective.ClampI = true;
