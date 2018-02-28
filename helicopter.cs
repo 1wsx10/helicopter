@@ -82,7 +82,9 @@ public void Main(string argument) {
 
 	IMyMotorStator[] antiTrqRotors = new IMyMotorStator[] {
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor A"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor B")
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor B"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor C"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor D")
 	};
 
 
@@ -94,8 +96,8 @@ public void Main(string argument) {
 	Controls mainSwashCont = new Controls();
 	Controls antiTrqCont = new Controls();
 
-	antiTrqCont.collective = 0.5f;
-	antiTrq.maxValue = 4f;
+	antiTrqCont.collective = 0.25f;
+	antiTrq.maxValue = 3f;
 
 
 	float collectiveDefault = 0.15f;
