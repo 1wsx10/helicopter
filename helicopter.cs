@@ -13,8 +13,12 @@ public const bool swapPitchAndRoll = false;
 public const bool enablePID = true;
 public float idecay = 1f;
 
+// "imertial measurement unit"
 Kinematics ShipIMU;
+
 Kinematics mainRotorVelocity;
+
+public float last_pitch_control = 0;
 
 PID ATCollective;
 PID MCollective;
@@ -116,7 +120,7 @@ public void Main(string argument) {
 	antiTrq.maxValue = 3f;
 
 
-	float collectiveDefault = 0.15f;
+	float collectiveDefault = 0.2f;
 	float cyclicDefault = 0.3f;
 
 	mainSwashCont.collective = 0.1f;
@@ -148,8 +152,8 @@ public void Main(string argument) {
 			ATCollective = new PID(0.2f, 0.05f, 0.15f, this);
 		}
 
-		// ATCollective.printinfo = true;
-		// write(ATCollective.info);
+		ATCollective.printinfo = true;
+		write(ATCollective.info);
 
 		ATCollective.iLimit = 10;
 		ATCollective.ClampI = true;
@@ -170,6 +174,7 @@ public void Main(string argument) {
 		}
 
 		mainSwashCont.cyclicR += (float)MCyclicR.update(controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f, (ShipIMU.VelocityAngularCurrent.X / 1f));
+
 	} else {
 		MCyclicR = null;
 		// keyboard
@@ -184,11 +189,26 @@ public void Main(string argument) {
 			MCyclicF = new PID(0.2f, 0.05f, 0.15f, this);
 		}
 
+		// write("X"+ShipIMU.AccelerationAngularCurrent.X);
+		// write("Y"+ShipIMU.AccelerationAngularCurrent.Y);
+		// write("Z"+ShipIMU.AccelerationAngularCurrent.Z);
+
+
+		// try countering angular acceleration
+		// mainSwashCont.cyclicF += (float)ShipIMU.AccelerationAngularCurrent.Z * -0.03f;
+		// that was terrible, try derivative of controls instead
+		// mainSwashCont.cyclicF += (float)((last_pitch_control - (controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f)) / Runtime.TimeSinceLastRun.TotalSeconds);
+		// nope, its all bad
+
 		mainSwashCont.cyclicF += (float)MCyclicF.update(controller.RollIndicator * -1, (ShipIMU.VelocityAngularCurrent.Z / 1f));
 	} else {
 		MCyclicF = null;
 		mainSwashCont.cyclicF += controller.RollIndicator * -0.3f * cyclicDefault + rollTrim;
 	}
+
+
+
+
 
 	// write("asdf"+mainSwashCont.cyclicF);
 
