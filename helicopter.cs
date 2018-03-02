@@ -372,10 +372,10 @@ float cutAngle(float angle) {
 // set the angle to be between -180 and 180 degrees
 // this takes and returns radians
 float cutAngleDegrees(float angle) {
-	while(angle > 360) {
+	while(angle > 180) {
 		angle -= 360;
 	}
-	while(angle < 0) {
+	while(angle < -180) {
 		angle += 360;
 	}
 	return angle;
