@@ -381,6 +381,65 @@ float cutAngleDegrees(float angle) {
 	return angle;
 }
 
+public class Pair<T,U> {
+	public T first;
+	public U second;
+}
+
+public class Helicopter {
+
+	public Program program;
+	public IMyShipController controller;
+	public Dictionary<string, Pair<SwashPlate, IcontrolsConvert>> heliRotors;
+
+	public Helicopter(Program prog, IMyShipController cont, Dictionary<string, Pair<SwashPlate, IcontrolsConvert>> heliRotors) {
+		this.program = prog;
+		this.controller = cont;
+		this.heliRotors = heliRotors;
+
+		if(this.heliRotors == null) {
+			this.heliRotors = new Dictionary<string, Pair<SwashPlate, IcontrolsConvert>>();
+		}
+	}
+
+	public void go(Vector3D translation, Vector3D rotation) {
+
+		foreach(var swash in heliRotors) {
+			Controls cont = swash.Value.second.convert(translation, rotation);
+
+			swash.Value.first.go(cont);
+		}
+	}
+}
+
+public interface IcontrolsConvert {
+	Controls convert(Vector3D translation, Vector3D rotation);
+}
+
+public class mainRotorConvert : IcontrolsConvert {
+	public Controls convert(Vector3D translation, Vector3D rotation) {
+		Controls output = new Controls();
+
+		output.collective = translation.Y;
+		output.cyclicF = rotation.X;
+		output.cyclicR = rotation.Z * -1;
+
+		return output;
+	}
+}
+
+public class antiTrqRotorConvert : IcontrolsConvert {
+	public Controls convert(Vector3D translation, Vector3D rotation) {
+		Controls output = new Controls();
+
+		output.collective = rotation.Y;
+		output.cyclicF = 0;
+		output.cyclicR = 0;
+
+		return output;
+	}
+}
+
 public struct Controls {
 	public double collective;
 	public double cyclicF;
