@@ -14,14 +14,17 @@ public float idecay = 1f;
 // "imertial measurement unit"
 Kinematics ShipIMU;
 
-Kinematics mainRotorVelocity;
-
 public float last_pitch_control = 0;
+
+public bool idleUP = false;
 
 PID ATCollective;
 PID MCollective;
 PID MCyclicR;
 PID MCyclicF;
+
+
+public const float RPMtoRADs = (float)Math.PI / 30;
 
 // remove unreachable code warning
 #pragma warning disable 0162
@@ -75,15 +78,11 @@ public void Main(string argument) {
 	IMyMotorStator mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
 	IMyMotorStator tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor");
 
-	if(mainRotorVelocity == null) {
-		mainRotorVelocity = new Kinematics(mShaft, mShaft.Top);
-	} else {
-
-		mainRotorVelocity.Update(Runtime.TimeSinceLastRun.TotalSeconds);
-		tShaft.TargetVelocityRad = (float)mainRotorVelocity.VelocityAngularCurrent.Y;
+	Rotor tailRotor = new Rotor(controller, tShaft);
 
 
-	}
+	tailRotor.setFromVec((mShaft.Top.WorldMatrix.Forward + mShaft.Top.WorldMatrix.Right / 1.414f).TransformNormal(mShaft.WorldMatrix.Invert()).TransformNormal(tShaft.WorldMatrix));
+
 
 	IMyMotorStator[] mainSwashRotors = new IMyMotorStator[] {
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"),
@@ -116,6 +115,7 @@ public void Main(string argument) {
 	float cyclicDefault = 0.3f;
 
 	mainSwashCont.collective = 0.1f;
+	mainSwash.maxValue = 3f;
 
 	float rollTrim = 0.005f;
 
@@ -123,6 +123,11 @@ public void Main(string argument) {
 	if(argument == "toggleYawAssist") {
 		yaw_assist = !yaw_assist;
 	}
+
+	if(argument.ToLower() == "idle up") {
+		idleUP = !idleUP;
+	}
+	write("Idle Up: " + idleUP);
 
 
 
@@ -135,7 +140,12 @@ public void Main(string argument) {
 		mainSwashCont.collective += (float)MCollective.update(controller.MoveIndicator.Y, (ShipIMU.AccelerationLinearCurrent.Y / 0.5f));
 	} else {
 		MCollective = null;
-		mainSwashCont.collective += controller.MoveIndicator.Y * collectiveDefault;
+
+		if(idleUP) {
+			mainSwashCont.collective = 0.4f * controller.MoveIndicator.Y;
+		} else {
+			mainSwashCont.collective += controller.MoveIndicator.Y * collectiveDefault;
+		}
 	}
 
 	// yaw
@@ -347,6 +357,30 @@ public class PID {
 	}
 }
 
+// set the angle to be between -pi and pi radians (0 and 360 degrees)
+// this takes and returns radians
+float cutAngle(float angle) {
+	while(angle > Math.PI) {
+		angle -= 2*(float)Math.PI;
+	}
+	while(angle < -Math.PI) {
+		angle += 2*(float)Math.PI;
+	}
+	return angle;
+}
+
+// set the angle to be between -180 and 180 degrees
+// this takes and returns radians
+float cutAngleDegrees(float angle) {
+	while(angle > 360) {
+		angle -= 360;
+	}
+	while(angle < 0) {
+		angle += 360;
+	}
+	return angle;
+}
+
 public struct Controls {
 	public float collective;
 	public float cyclicR;
@@ -420,13 +454,11 @@ public class SwashPlate {
 
 			blade.setFromVec(vec);
 
-			if(first) {
+			if(printinfo && first) {
 				first = false;
 
-				if(printinfo) {
-					theStr += "\nfirst basevec: " + blade.localForwardDir.ToString("0.0");
-					theStr += "\nfirst desired: " + vec.ToString("0.0");
-				}
+				theStr += "\nfirst basevec: " + blade.localForwardDir.ToString("0.0");
+				theStr += "\nfirst desired: " + vec.ToString("0.0");
 			}
 		}
 	}
@@ -682,6 +714,10 @@ public static class CustomProgramExtensions {
 
 	public static Vector3D TransformNormal(this Vector3D vec, MatrixD mat) {
 		return Vector3D.TransformNormal(vec, mat);
+	}
+
+	public static MatrixD Invert(this MatrixD mat) {
+		return MatrixD.Invert(mat);
 	}
 
 	public static string progressBar(this double val) {
