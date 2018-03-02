@@ -20,8 +20,8 @@ public bool idleUP = false;
 
 PID ATCollective;
 PID MCollective;
-PID MCyclicR;
 PID MCyclicF;
+PID McyclicR;
 
 
 public const float RPMtoRADs = (float)Math.PI / 30;
@@ -171,36 +171,36 @@ public void Main(string argument) {
 
 	// pitch
 	if(pitch_assist) {
-		if(MCyclicR == null) {
-			MCyclicR = new PID(0.2f, 0.05f, 0.15f, this);
+		if(MCyclicF == null) {
+			MCyclicF = new PID(0.2f, 0.05f, 0.15f, this);
 		}
 
-		mainSwashCont.cyclicR += (float)MCyclicR.update(controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f, (ShipIMU.VelocityAngularCurrent.X / 1f));
+		mainSwashCont.cyclicF += (float)MCyclicF.update(controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f, (ShipIMU.VelocityAngularCurrent.X / 1f));
 
 	} else {
-		MCyclicR = null;
+		MCyclicF = null;
 		// keyboard
-		mainSwashCont.cyclicR += controller.MoveIndicator.Z * 0.3f * cyclicDefault;
+		mainSwashCont.cyclicF += controller.MoveIndicator.Z * 0.3f * cyclicDefault;
 		// mouse
-		mainSwashCont.cyclicR += controller.RotationIndicator.X * -0.01f;
+		mainSwashCont.cyclicF += controller.RotationIndicator.X * -0.01f;
 	}
 
 	// roll
 	if(roll_assist) {
-		if(roll_assist && MCyclicF == null) {
-			MCyclicF = new PID(0.2f, 0.05f, 0.15f, this);
+		if(roll_assist && McyclicR == null) {
+			McyclicR = new PID(0.2f, 0.05f, 0.15f, this);
 		}
 
 		// try countering angular acceleration
-		// mainSwashCont.cyclicF += (float)ShipIMU.AccelerationAngularCurrent.Z * -0.03f;
+		// mainSwashCont.cyclicR += (float)ShipIMU.AccelerationAngularCurrent.Z * -0.03f;
 		// that was terrible, try derivative of controls instead
-		// mainSwashCont.cyclicF += (float)((last_pitch_control - (controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f)) / Runtime.TimeSinceLastRun.TotalSeconds);
+		// mainSwashCont.cyclicR += (float)((last_pitch_control - (controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f)) / Runtime.TimeSinceLastRun.TotalSeconds);
 		// nope, its all bad
 
-		mainSwashCont.cyclicF += (float)MCyclicF.update(controller.RollIndicator * -1, (ShipIMU.VelocityAngularCurrent.Z / 1f));
+		mainSwashCont.cyclicR += (float)McyclicR.update(controller.RollIndicator * -1, (ShipIMU.VelocityAngularCurrent.Z / 1f));
 	} else {
-		MCyclicF = null;
-		mainSwashCont.cyclicF += controller.RollIndicator * -0.3f * cyclicDefault + rollTrim;
+		McyclicR = null;
+		mainSwashCont.cyclicR += controller.RollIndicator * -0.3f * cyclicDefault + rollTrim;
 	}
 
 
@@ -382,9 +382,9 @@ float cutAngleDegrees(float angle) {
 }
 
 public struct Controls {
-	public float collective;
-	public float cyclicR;
-	public float cyclicF;
+	public double collective;
+	public double cyclicF;
+	public double cyclicR;
 }
 
 public class SwashPlate {
@@ -407,12 +407,15 @@ public class SwashPlate {
 		foreach(IMyMotorStator motor in blades) {
 			Rotor current = new Rotor(controller, motor);
 
-			current.setForwardDir(Vector3D.Cross(rotorShaft.WorldMatrix.Up, motor.WorldMatrix.Up));
+			// forward direction is reversed if the main rotor is in reverse
+			current.setForwardDir(Vector3D.Cross(rotorShaft.WorldMatrix.Up, motor.WorldMatrix.Up) * (rotorShaft.TargetVelocityRPM > 0 ? 1 : -1));
 			current.headOffset = current.localForwardDir; //no offset
 
 			this.blades.Add(current);
 		}
 	}
+
+	// controls, Vector3D
 
 	// should keep controls between -1 and 1
 	public void go(Controls cont) {
@@ -425,21 +428,21 @@ public class SwashPlate {
 		} else if(cont.collective < -maxValue) {
 			cont.collective = -maxValue;
 		}
-		if(cont.cyclicR > maxValue) {
-			cont.cyclicR = maxValue;
-		} else if(cont.cyclicR < -maxValue) {
-			cont.cyclicR = -maxValue;
-		}
 		if(cont.cyclicF > maxValue) {
 			cont.cyclicF = maxValue;
 		} else if(cont.cyclicF < -maxValue) {
 			cont.cyclicF = -maxValue;
 		}
+		if(cont.cyclicR > maxValue) {
+			cont.cyclicR = maxValue;
+		} else if(cont.cyclicR < -maxValue) {
+			cont.cyclicR = -maxValue;
+		}
 
 		if(printinfo) {
 			theStr += "collective: " + cont.collective;
-			theStr += "\ncyclicF: " + cont.cyclicF;
 			theStr += "\ncyclicR: " + cont.cyclicR;
+			theStr += "\ncyclicF: " + cont.cyclicF;
 		}
 
 		bool first = true;
@@ -447,10 +450,10 @@ public class SwashPlate {
 			Vector3D vec =
 				// collective
 				blade.getForwardDir() + rotorShaft.WorldMatrix.Up * cont.collective +
-				// cyclic forward
-				Vector3D.Dot(blade.getForwardDir(), rotorShaft.WorldMatrix.Right) * rotorShaft.WorldMatrix.Up * cont.cyclicF +
 				// cyclic right
-				Vector3D.Dot(blade.getForwardDir(), rotorShaft.WorldMatrix.Forward) * rotorShaft.WorldMatrix.Up * cont.cyclicR;
+				Vector3D.Dot(blade.getForwardDir(), rotorShaft.WorldMatrix.Right) * rotorShaft.WorldMatrix.Up * cont.cyclicR +
+				// cyclic forward
+				Vector3D.Dot(blade.getForwardDir(), rotorShaft.WorldMatrix.Forward) * rotorShaft.WorldMatrix.Up * cont.cyclicF;
 
 			blade.setFromVec(vec);
 
@@ -462,6 +465,18 @@ public class SwashPlate {
 			}
 		}
 	}
+
+	public Vector3D controlsToVec(Controls cont) {
+		return new Vector3D(cont.cyclicF, cont.collective, cont.cyclicR * -1);
+	}
+
+	public Controls vecToControls(Vector3D vec) {
+		Controls output = new Controls();
+		output.collective = vec.Y;
+		output.cyclicR = -1 * vec.Z;
+		output.cyclicF = vec.X;
+		return output;
+	}
 }
 
 public class Rotor {
@@ -469,7 +484,7 @@ public class Rotor {
 	public IMyMotorStator theBlock;
 	public IMyShipController controller;
 
-	public Vector3D localForwardDir;
+	public Vector3D localForwardDir = new Vector3D(0, 0, -1);
 	// this should be the forward direction local to the rotor head
 	public Vector3D headOffset = new Vector3D(0, 0, -1);
 
