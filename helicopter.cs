@@ -18,13 +18,28 @@ public float last_pitch_control = 0;
 
 public bool idleUP = false;
 
-PID ATCollective;
-PID MCollective;
-PID MCyclicF;
-PID McyclicR;
 
+Rotor tailRotor;
+
+IMyShipController controller;
 
 public const float RPMtoRADs = (float)Math.PI / 30;
+
+
+
+
+
+
+
+
+
+
+
+
+public Program() {
+	setup();
+}
+
 
 // remove unreachable code warning
 #pragma warning disable 0162
@@ -39,69 +54,36 @@ public void Main(string argument) {
 	if(Runtime.TimeSinceLastRun.Milliseconds > 16) {
 		log += $"Time was greater than 0.016: \n\t{Runtime.TimeSinceLastRun.Milliseconds}ms";
 	}
-
-
-
-
 	Echo(log);
 
-	IMyShipController controller = (IMyShipController)GridTerminalSystem.GetBlockWithName("Cockpit Forward");
 
+
+
+
+
+	ShipIMU.Update(Runtime.TimeSinceLastRun.TotalSeconds);
 
 	string output ="";
-	if(ShipIMU == null)
-	{
-		ShipIMU = new Kinematics((IMyEntity)controller, null);
-	}
-	else
-	{
-		ShipIMU.Update(Runtime.TimeSinceLastRun.TotalSeconds);
-
-		output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
-				ShipIMU.VelocityLinearCurrent.ToString("0.000\n"),
-				ShipIMU.VelocityAngularCurrent.ToString("0.000\n")
-			);
-		// output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}",
-		// 		ShipIMU.AccelerationLinearCurrent.ToString("0.00\n"),
-		// 		ShipIMU.AccelerationAngularCurrent.ToString("0.00\n")
-		// 	);
-		// output += string.Format("Jerk (Linear) [m/s³]\n{0}\nJerk (Angular) [rad/s³]\n{1}\n",
-		// 		ShipIMU.JerkLinearCurrent.ToString("0.000\n"),
-		// 		ShipIMU.JerkAngularCurrent.ToString("0.000\n")
-		// 	);
-	}
+	output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
+			ShipIMU.VelocityLinearCurrent.ToString("0.000\n"),
+			ShipIMU.VelocityAngularCurrent.ToString("0.000\n")
+		);
+	// output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}",
+	// 		ShipIMU.AccelerationLinearCurrent.ToString("0.00\n"),
+	// 		ShipIMU.AccelerationAngularCurrent.ToString("0.00\n")
+	// 	);
+	// output += string.Format("Jerk (Linear) [m/s³]\n{0}\nJerk (Angular) [rad/s³]\n{1}\n",
+	// 		ShipIMU.JerkLinearCurrent.ToString("0.000\n"),
+	// 		ShipIMU.JerkAngularCurrent.ToString("0.000\n")
+	// 	);
 	write(output);
 
 
-
-	// get rotors
-	IMyMotorStator mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
-	IMyMotorStator tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor");
-
-	Rotor tailRotor = new Rotor(controller, tShaft);
-
-
+	// control tail rotor speed to match main rotor speed
 	tailRotor.setFromVec((mShaft.Top.WorldMatrix.Forward + mShaft.Top.WorldMatrix.Right / 1.414f).TransformNormal(mShaft.WorldMatrix.Invert()).TransformNormal(tShaft.WorldMatrix));
 
 
-	IMyMotorStator[] mainSwashRotors = new IMyMotorStator[] {
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor B"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor C"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor D")
-	};
 
-	IMyMotorStator[] antiTrqRotors = new IMyMotorStator[] {
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor A"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor B"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor C"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor D")
-	};
-
-
-	// construct swashplates
-	SwashPlate mainSwash = new SwashPlate(controller, mainSwashRotors, mShaft);
-	SwashPlate antiTrq = new SwashPlate(controller, antiTrqRotors, tShaft);
 
 	// setup controls
 	Controls mainSwashCont = new Controls();
@@ -214,6 +196,47 @@ public void Main(string argument) {
 	antiTrq.go(antiTrqCont);
 
 
+}
+
+public bool setup() {
+
+	// TODO: make this check
+
+	controller = (IMyShipController)GridTerminalSystem.GetBlockWithName("Cockpit Forward");
+
+	ShipIMU = new Kinematics((IMyEntity)controller, null);
+
+	// get rotors
+	IMyMotorStator mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
+	IMyMotorStator tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor");
+
+	IMyMotorStator[] mainSwashRotors = new IMyMotorStator[] {
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor B"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor C"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor D")
+	};
+
+	IMyMotorStator[] antiTrqRotors = new IMyMotorStator[] {
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor A"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor B"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor C"),
+		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor D")
+	};
+
+	tailRotor = new Rotor(controller, tShaft);
+
+	// construct swashplates
+	SwashPlate mainSwash = new SwashPlate(controller, mainSwashRotors, mShaft);
+	SwashPlate antiTrq = new SwashPlate(controller, antiTrqRotors, tShaft);
+
+
+	Dictionary<string, Pair<SwashPlate, IControlsConvert>> heliRotors = new Dictionary<string, Pair<SwashPlate, IControlsConvert>>();
+
+	heliRotors.Add("Main Swashplate", new Pair<SwashPlate, IControlsConvert>(mainSwash, new mainRotorConvert()));
+	heliRotors.Add("Anti Torque", new Pair<SwashPlate, IControlsConvert>(antiTrq, new antiTrqRotorConvert()));
+
+	return true;
 }
 
 public List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
@@ -390,19 +413,89 @@ public class Helicopter {
 
 	public Program program;
 	public IMyShipController controller;
-	public Dictionary<string, Pair<SwashPlate, IcontrolsConvert>> heliRotors;
+	public Dictionary<string, Pair<SwashPlate, IControlsConvert>> heliRotors;
 
-	public Helicopter(Program prog, IMyShipController cont, Dictionary<string, Pair<SwashPlate, IcontrolsConvert>> heliRotors) {
+	public PID PID_pitch;
+	public PID PID_yaw;
+	public PID PID_roll;
+	public PID PID_tX;
+	public PID PID_tY;
+	public PID PID_tZ;
+
+	public bool is_PID_pitch_active = true;
+	public bool is_PID_yaw_active = true;
+	public bool is_PID_roll_active = true;
+	public bool is_PID_tX_active = false;
+	public bool is_PID_tY_active = false;
+	public bool is_PID_tZ_active = false;
+
+	public Helicopter(Program prog, IMyShipController cont, Dictionary<string, Pair<SwashPlate, IControlsConvert>> heliRotors) {
 		this.program = prog;
 		this.controller = cont;
 		this.heliRotors = heliRotors;
 
 		if(this.heliRotors == null) {
-			this.heliRotors = new Dictionary<string, Pair<SwashPlate, IcontrolsConvert>>();
+			this.heliRotors = new Dictionary<string, Pair<SwashPlate, IControlsConvert>>();
 		}
 	}
 
 	public void go(Vector3D translation, Vector3D rotation) {
+
+
+		if(is_PID_pitch_active) {
+			if(PID_pitch == null) {
+				PID_pitch = new PID(pDefault, iDefault, dDefault, this.program);
+			} else {
+				rotation.X = PID_pitch.update(rotation.X, ShipIMU.VelocityAngularCurrent.X);
+			}
+		} else {
+			PID_pitch = null;
+		}
+		if(is_PID_yaw_active) {
+			if(PID_yaw == null) {
+				PID_yaw = new PID(pDefault, iDefault, dDefault, this.program);
+			} else {
+				rotation.Y = PID_yaw.update(rotation.Y, ShipIMU.VelocityAngularCurrent.Y);
+			}
+		} else {
+			PID_yaw = null;
+		}
+		if(is_PID_roll_active) {
+			if(PID_roll == null) {
+				PID_roll = new PID(pDefault, iDefault, dDefault, this.program);
+			} else {
+				rotation.Z = PID_roll.update(rotation.Z, ShipIMU.VelocityAngularCurrent.Z);
+			}
+		} else {
+			PID_roll = null;
+		}
+		if(is_PID_tX_active) {
+			if(PID_tX == null) {
+				PID_tX = new PID(pDefault, iDefault, dDefault, this.program);
+			} else {
+				translation.X = PID_tX.update(translation.X, ShipIMU.VelocityLinearCurrent.X);
+			}
+		} else {
+			PID_tX = null;
+		}
+		if(is_PID_tY_active) {
+			if(PID_tY == null) {
+				PID_tY = new PID(pDefault, iDefault, dDefault, this.program);
+			} else {
+				translation.Y = PID_tY.update(translation.Y, ShipIMU.VelocityLinearCurrent.Y);
+			}
+		} else {
+			PID_tY = null;
+		}
+		if(is_PID_tZ_active) {
+			if(PID_tZ == null) {
+				PID_tZ = new PID(pDefault, iDefault, dDefault, this.program);
+			} else {
+				translation.Z = PID_tZ.update(translation.Z, ShipIMU.VelocityLinearCurrent.Z);
+			}
+		} else {
+			PID_tZ = null;
+		}
 
 		foreach(var swash in heliRotors) {
 			Controls cont = swash.Value.second.convert(translation, rotation);
@@ -412,11 +505,11 @@ public class Helicopter {
 	}
 }
 
-public interface IcontrolsConvert {
+public interface IControlsConvert {
 	Controls convert(Vector3D translation, Vector3D rotation);
 }
 
-public class mainRotorConvert : IcontrolsConvert {
+public class mainRotorConvert : IControlsConvert {
 	public Controls convert(Vector3D translation, Vector3D rotation) {
 		Controls output = new Controls();
 
@@ -428,7 +521,7 @@ public class mainRotorConvert : IcontrolsConvert {
 	}
 }
 
-public class antiTrqRotorConvert : IcontrolsConvert {
+public class antiTrqRotorConvert : IControlsConvert {
 	public Controls convert(Vector3D translation, Vector3D rotation) {
 		Controls output = new Controls();
 
