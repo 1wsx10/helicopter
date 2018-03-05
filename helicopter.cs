@@ -19,12 +19,35 @@ public float last_pitch_control = 0;
 public bool idleUP = false;
 
 
+IMyMotorStator mShaft;
+// tShaft and tailRotor are the same thing
+IMyMotorStator tShaft;
 Rotor tailRotor;
 
 IMyShipController controller;
 
 public const float RPMtoRADs = (float)Math.PI / 30;
 
+
+
+public const float mouseSpeed = 0.09f;
+
+public const float collectiveDefault = 0.25f;
+public const float collectiveSensitivity = 0.3f;
+
+public const float mousepitch_sensitivity = 1f;
+public const float mouseyaw_sensitivity = 1f;
+public const float pitch_sensitivity = 1.3f;
+public const float yaw_sensitivity = 1.3f;
+public const float roll_sensitivity = 1.3f;
+
+
+
+Helicopter theHelicopter;
+
+public const float pDefault = 0.2f;
+public const float iDefault = 0.05f;
+public const float dDefault = 0.15f;
 
 
 
@@ -60,14 +83,14 @@ public void Main(string argument) {
 
 
 
-
+	// detect movement, used for flight assists (PIDs)
 	ShipIMU.Update(Runtime.TimeSinceLastRun.TotalSeconds);
 
-	string output ="";
-	output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
-			ShipIMU.VelocityLinearCurrent.ToString("0.000\n"),
-			ShipIMU.VelocityAngularCurrent.ToString("0.000\n")
-		);
+	// string output ="";
+	// output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
+	// 		ShipIMU.VelocityLinearCurrent.ToString("0.000\n"),
+	// 		ShipIMU.VelocityAngularCurrent.ToString("0.000\n")
+	// 	);
 	// output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}",
 	// 		ShipIMU.AccelerationLinearCurrent.ToString("0.00\n"),
 	// 		ShipIMU.AccelerationAngularCurrent.ToString("0.00\n")
@@ -76,7 +99,8 @@ public void Main(string argument) {
 	// 		ShipIMU.JerkLinearCurrent.ToString("0.000\n"),
 	// 		ShipIMU.JerkAngularCurrent.ToString("0.000\n")
 	// 	);
-	write(output);
+	// write(output);
+
 
 
 	// control tail rotor speed to match main rotor speed
@@ -85,118 +109,32 @@ public void Main(string argument) {
 
 
 
-	// setup controls
-	Controls mainSwashCont = new Controls();
-	Controls antiTrqCont = new Controls();
 
-	antiTrqCont.collective = 0.25f;
-	antiTrq.maxValue = 3f;
-
-
-	float collectiveDefault = 0.2f;
-	float cyclicDefault = 0.3f;
-
-	mainSwashCont.collective = 0.1f;
-	mainSwash.maxValue = 3f;
-
-	float rollTrim = 0.005f;
-
-
-	if(argument == "toggleYawAssist") {
-		yaw_assist = !yaw_assist;
-	}
-
-	if(argument.ToLower() == "idle up") {
-		idleUP = !idleUP;
-	}
-	write("Idle Up: " + idleUP);
-
+	// controls
+	Vector3D translation = Vector3D.Zero;
+	Vector3D rotation = Vector3D.Zero;
 
 
 	// collective
-	if(collective_assist) { // this is broken
-		if(false && MCollective == null) {
-			MCollective = new PID(0.2f, 0.05f, 0.15f, this);
-		}
-
-		mainSwashCont.collective += (float)MCollective.update(controller.MoveIndicator.Y, (ShipIMU.AccelerationLinearCurrent.Y / 0.5f));
-	} else {
-		MCollective = null;
-
-		if(idleUP) {
-			mainSwashCont.collective = 0.4f * controller.MoveIndicator.Y;
-		} else {
-			mainSwashCont.collective += controller.MoveIndicator.Y * collectiveDefault;
-		}
-	}
-
-	// yaw
-	if(yaw_assist) {
-		if(ATCollective == null) {
-			ATCollective = new PID(0.2f, 0.05f, 0.15f, this);
-		}
-
-		ATCollective.printinfo = true;
-		write(ATCollective.info);
-
-		ATCollective.iLimit = 8;
-		ATCollective.ClampI = true;
-
-		antiTrqCont.collective += (float)ATCollective.update(controller.MoveIndicator.X + controller.RotationIndicator.Y * 0.09f, (ShipIMU.VelocityAngularCurrent.Y / 1f) * -1);
-	} else {
-		ATCollective = null;
-		// keyboard
-		antiTrqCont.collective += controller.MoveIndicator.X * collectiveDefault;
-		// mouse
-		antiTrqCont.collective += controller.RotationIndicator.Y * 0.01f;
-	}
+	translation.Y = controller.MoveIndicator.Y * collectiveSensitivity + collectiveDefault;
 
 	// pitch
-	if(pitch_assist) {
-		if(MCyclicF == null) {
-			MCyclicF = new PID(0.2f, 0.05f, 0.15f, this);
-		}
-
-		mainSwashCont.cyclicF += (float)MCyclicF.update(controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f, (ShipIMU.VelocityAngularCurrent.X / 1f));
-
-	} else {
-		MCyclicF = null;
-		// keyboard
-		mainSwashCont.cyclicF += controller.MoveIndicator.Z * 0.3f * cyclicDefault;
-		// mouse
-		mainSwashCont.cyclicF += controller.RotationIndicator.X * -0.01f;
-	}
-
+	rotation.X = controller.RotationIndicator.X * mousepitch_sensitivity * mouseSpeed * -1 +
+		controller.MoveIndicator.Z * pitch_sensitivity;
+	// yaw
+	rotation.Y = controller.RotationIndicator.Y * mouseyaw_sensitivity * mouseSpeed +
+		controller.MoveIndicator.X * yaw_sensitivity;
 	// roll
-	if(roll_assist) {
-		if(roll_assist && McyclicR == null) {
-			McyclicR = new PID(0.2f, 0.05f, 0.15f, this);
-		}
-
-		// try countering angular acceleration
-		// mainSwashCont.cyclicR += (float)ShipIMU.AccelerationAngularCurrent.Z * -0.03f;
-		// that was terrible, try derivative of controls instead
-		// mainSwashCont.cyclicR += (float)((last_pitch_control - (controller.MoveIndicator.Z + controller.RotationIndicator.X * -0.09f)) / Runtime.TimeSinceLastRun.TotalSeconds);
-		// nope, its all bad
-
-		mainSwashCont.cyclicR += (float)McyclicR.update(controller.RollIndicator * -1, (ShipIMU.VelocityAngularCurrent.Z / 1f));
-	} else {
-		McyclicR = null;
-		mainSwashCont.cyclicR += controller.RollIndicator * -0.3f * cyclicDefault + rollTrim;
-	}
+	rotation.Z = controller.RollIndicator * roll_sensitivity;
 
 
 
 
 
-	mainSwashCont.collective *= -1;
-
-
-	mainSwash.go(mainSwashCont);
-	antiTrq.go(antiTrqCont);
-
-
+	// set the blade angles
+	theHelicopter.go(translation, rotation);
 }
+
 
 public bool setup() {
 
@@ -207,8 +145,8 @@ public bool setup() {
 	ShipIMU = new Kinematics((IMyEntity)controller, null);
 
 	// get rotors
-	IMyMotorStator mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
-	IMyMotorStator tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor");
+	mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
+	tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor");
 
 	IMyMotorStator[] mainSwashRotors = new IMyMotorStator[] {
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"),
@@ -235,6 +173,8 @@ public bool setup() {
 
 	heliRotors.Add("Main Swashplate", new Pair<SwashPlate, IControlsConvert>(mainSwash, new mainRotorConvert()));
 	heliRotors.Add("Anti Torque", new Pair<SwashPlate, IControlsConvert>(antiTrq, new antiTrqRotorConvert()));
+
+	theHelicopter = new Helicopter(this, controller, heliRotors);
 
 	return true;
 }
@@ -308,8 +248,8 @@ public class PID {
 	private double lasterror = 0;
 	private double integral = 0;
 
-	public double iLimit = 0;
-	public bool ClampI = false;
+	public double iLimit = 8;
+	public bool ClampI = true;
 
 	public string info = "";
 	public bool printinfo = false;
@@ -404,9 +344,14 @@ float cutAngleDegrees(float angle) {
 	return angle;
 }
 
-public class Pair<T,U> {
+public class Pair<T, U> {
 	public T first;
 	public U second;
+
+	public Pair(T first, U second) {
+		this.first = first;
+		this.second = second;
+	}
 }
 
 public class Helicopter {
@@ -446,7 +391,7 @@ public class Helicopter {
 			if(PID_pitch == null) {
 				PID_pitch = new PID(pDefault, iDefault, dDefault, this.program);
 			} else {
-				rotation.X = PID_pitch.update(rotation.X, ShipIMU.VelocityAngularCurrent.X);
+				rotation.X = PID_pitch.update(rotation.X, program.ShipIMU.VelocityAngularCurrent.X);
 			}
 		} else {
 			PID_pitch = null;
@@ -455,7 +400,7 @@ public class Helicopter {
 			if(PID_yaw == null) {
 				PID_yaw = new PID(pDefault, iDefault, dDefault, this.program);
 			} else {
-				rotation.Y = PID_yaw.update(rotation.Y, ShipIMU.VelocityAngularCurrent.Y);
+				rotation.Y = PID_yaw.update(rotation.Y, program.ShipIMU.VelocityAngularCurrent.Y * -1);
 			}
 		} else {
 			PID_yaw = null;
@@ -464,7 +409,7 @@ public class Helicopter {
 			if(PID_roll == null) {
 				PID_roll = new PID(pDefault, iDefault, dDefault, this.program);
 			} else {
-				rotation.Z = PID_roll.update(rotation.Z, ShipIMU.VelocityAngularCurrent.Z);
+				rotation.Z = PID_roll.update(rotation.Z, program.ShipIMU.VelocityAngularCurrent.Z * -1);
 			}
 		} else {
 			PID_roll = null;
@@ -473,7 +418,7 @@ public class Helicopter {
 			if(PID_tX == null) {
 				PID_tX = new PID(pDefault, iDefault, dDefault, this.program);
 			} else {
-				translation.X = PID_tX.update(translation.X, ShipIMU.VelocityLinearCurrent.X);
+				translation.X = PID_tX.update(translation.X, program.ShipIMU.VelocityLinearCurrent.X);
 			}
 		} else {
 			PID_tX = null;
@@ -482,7 +427,7 @@ public class Helicopter {
 			if(PID_tY == null) {
 				PID_tY = new PID(pDefault, iDefault, dDefault, this.program);
 			} else {
-				translation.Y = PID_tY.update(translation.Y, ShipIMU.VelocityLinearCurrent.Y);
+				translation.Y = PID_tY.update(translation.Y, program.ShipIMU.VelocityLinearCurrent.Y);
 			}
 		} else {
 			PID_tY = null;
@@ -491,7 +436,7 @@ public class Helicopter {
 			if(PID_tZ == null) {
 				PID_tZ = new PID(pDefault, iDefault, dDefault, this.program);
 			} else {
-				translation.Z = PID_tZ.update(translation.Z, ShipIMU.VelocityLinearCurrent.Z);
+				translation.Z = PID_tZ.update(translation.Z, program.ShipIMU.VelocityLinearCurrent.Z);
 			}
 		} else {
 			PID_tZ = null;
@@ -505,6 +450,8 @@ public class Helicopter {
 	}
 }
 
+
+// this tells the program how to interpret the controls for each type of swashplate
 public interface IControlsConvert {
 	Controls convert(Vector3D translation, Vector3D rotation);
 }
@@ -525,7 +472,8 @@ public class antiTrqRotorConvert : IControlsConvert {
 	public Controls convert(Vector3D translation, Vector3D rotation) {
 		Controls output = new Controls();
 
-		output.collective = rotation.Y;
+		// you turn the opposite direction of the tail rotor
+		output.collective = rotation.Y * -1;
 		output.cyclicF = 0;
 		output.cyclicR = 0;
 
@@ -561,7 +509,8 @@ public class SwashPlate {
 
 			// forward direction is reversed if the main rotor is in reverse
 			current.setForwardDir(Vector3D.Cross(rotorShaft.WorldMatrix.Up, motor.WorldMatrix.Up) * (rotorShaft.TargetVelocityRPM > 0 ? 1 : -1));
-			current.headOffset = current.localForwardDir; //no offset
+			// current.headOffset = current.localForwardDir; //no offset
+			// current.headOffset = new Vector3D(-1,0,0);
 
 			this.blades.Add(current);
 		}
@@ -599,13 +548,18 @@ public class SwashPlate {
 
 		bool first = true;
 		foreach(Rotor blade in blades) {
+
+			Vector3D bladeForward = blade.getForwardDir();
+
 			Vector3D vec =
-				// collective
-				blade.getForwardDir() + rotorShaft.WorldMatrix.Up * cont.collective +
+				// point it forward
+				bladeForward +
+				// collective TODO find out why collective needs to be reversed
+				rotorShaft.WorldMatrix.Up * cont.collective * -1 +
 				// cyclic right
-				Vector3D.Dot(blade.getForwardDir(), rotorShaft.WorldMatrix.Right) * rotorShaft.WorldMatrix.Up * cont.cyclicR +
+				Vector3D.Dot(bladeForward, rotorShaft.WorldMatrix.Right) * rotorShaft.WorldMatrix.Up * cont.cyclicR +
 				// cyclic forward
-				Vector3D.Dot(blade.getForwardDir(), rotorShaft.WorldMatrix.Forward) * rotorShaft.WorldMatrix.Up * cont.cyclicF;
+				Vector3D.Dot(bladeForward, rotorShaft.WorldMatrix.Forward) * rotorShaft.WorldMatrix.Up * cont.cyclicF;
 
 			blade.setFromVec(vec);
 
