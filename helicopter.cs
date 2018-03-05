@@ -131,6 +131,31 @@ public void Main(string argument) {
 
 
 
+	Vector3D counterhover = Vector3D.Zero;
+
+	Vector3D naturalGravity = controller.GetNaturalGravity();
+
+	naturalGravity = naturalGravity.TransformNormal(controller.WorldMatrix.Invert());
+
+
+	counterhover.X += naturalGravity.Z * -0.1f;
+	counterhover.X += ShipIMU.VelocityLinearCurrent.Z * -1f / 50;
+
+
+	counterhover.Z += naturalGravity.X * -0.1f;
+	counterhover.Z += ShipIMU.VelocityLinearCurrent.X * 1f / 50;
+
+	// counterhover /= 10;
+
+	write(""+counterhover.Round(2));
+
+	rotation += counterhover;
+
+
+
+
+
+
 	// set the blade angles
 	theHelicopter.go(translation, rotation);
 }
