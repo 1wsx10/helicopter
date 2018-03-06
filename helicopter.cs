@@ -22,11 +22,13 @@ public bool autohover = true;
 
 
 
-public const float overall_sensitivity = 1f;
-
-public const float mouse_sensitivity = 0.09f;
 
 public const float collectiveDefault = 0.03f;
+
+
+// multiply by -1 to reverse, or 0.5 to half, etc...
+public const float overall_sensitivity = 1f;
+public const float mouse_sensitivity = 0.09f;
 
 public const float collectiveSensitivity 	= overall_sensitivity * 0.3f;
 
@@ -38,6 +40,23 @@ public const float roll_sensitivity 		= overall_sensitivity * 1.3f / 6f;
 
 // sensitivity adjustment when flight assists are active
 public const float pid_sensitivity = 6f;
+
+
+// control module joystick / gamepad bindings
+// type "/cm showinputs" into chat
+// press the desired button
+// put that text EXACTLY as it is in the quotes for the control you want
+public const string jsPitchAxis = "";
+public const string jsYawAxis = "";
+public const string jsRollAxis = "";
+public const string jsCollectiveAxis = "";
+// ^ those are the names for my joystick
+
+// multiply by -1 to reverse, or 0.5 to half, etc...
+public const float jsPitchAxis_sensitivity = 1f;
+public const float jsYawAxis_sensitivity = 1f;
+public const float jsRollAxis_sensitivity = 1f;
+public const float jsCollectiveAxis_sensitivity = 1f;
 
 
 
@@ -77,6 +96,7 @@ Rotor tailRotor;
 
 IMyShipController controller;
 
+public bool controlModule = true;
 
 
 
@@ -125,6 +145,23 @@ public void Main(string argument, UpdateType runType) {
 	Vector3D rotation = Vector3D.Zero;
 
 
+
+
+
+	if(autohover) {
+		apply_autohover(ref translation, ref rotation);
+	}
+
+
+
+	// set the blade angles
+	theHelicopter.go(translation, rotation);
+}
+
+public void apply_controls(ref Vector3D translation, ref Vector3D rotation) {
+
+	// mouse + kb
+
 	// collective
 	translation.Y = controller.MoveIndicator.Y * collectiveSensitivity + collectiveDefault;
 
@@ -149,14 +186,20 @@ public void Main(string argument, UpdateType runType) {
 
 
 
-	if(autohover) {
-		apply_autohover(ref translation, ref rotation);
+	// joystick / gamepad (requires control module)
+	if(controlModule) {
+		// setup control module
+		Dictionary<string, object> inputs = new Dictionary<string, object>();
+		try {
+			inputs = Me.GetValue<Dictionary<string, object>>("ControlModule.Inputs");
+			Me.SetValue<string>("ControlModule.AddInput", "all");
+			Me.SetValue<bool>("ControlModule.RunOnInput", true);
+			Me.SetValue<int>("ControlModule.InputState", 1);
+			Me.SetValue<float>("ControlModule.RepeatDelay", 0.016f);
+		} catch(Exception e) {
+			controlModule = false;
+		}
 	}
-
-
-
-	// set the blade angles
-	theHelicopter.go(translation, rotation);
 }
 
 public void apply_autohover(ref Vector3D translation, ref Vector3D rotation) {
