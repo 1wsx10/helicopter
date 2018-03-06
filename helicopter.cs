@@ -1,23 +1,74 @@
 
-public bool collective_assist = false;
+// turn on PID controllers for each axis
+// these control rotation speed and have nothing to do with absolute speed
 public bool pitch_assist = true;
 public bool roll_assist = true;
 public bool yaw_assist = true;
 
-public string log = "";
+// make the helicopter try to self-level and reduce velocity to 0
+// this controls absolute speed
+public bool autohover = true;
 
-public const bool swapPitchAndRoll = false;
 
-public const bool enablePID = true;
+
+
+
+
+
+
+
+
+
+
+
+
+public const float overall_sensitivity = 1f;
+
+public const float mouse_sensitivity = 0.09f;
+
+public const float collectiveDefault = 0.03f;
+
+public const float collectiveSensitivity 	= overall_sensitivity * 0.3f;
+
+public const float mousepitch_sensitivity 	= overall_sensitivity * 1f / 6f;
+public const float mouseyaw_sensitivity 	= overall_sensitivity * 1f / 6f;
+public const float pitch_sensitivity 		= overall_sensitivity * 1.3f / 6f;
+public const float yaw_sensitivity 			= overall_sensitivity * 1.3f / 6f;
+public const float roll_sensitivity 		= overall_sensitivity * 1.3f / 6f;
+
+// sensitivity adjustment when flight assists are active
+public const float pid_sensitivity = 6f;
+
+
+
+// default PID values
+public const float pDefault = 0.2f;
+public const float iDefault = 0.05f;
+public const float dDefault = 0.15f;
+
+// I value is multiplied by this, so you can make it slowly decay
 public float idecay = 1f;
+
+
+
+
+
+
 
 // "imertial measurement unit"
 Kinematics ShipIMU;
 
-public float last_pitch_control = 0;
+public string log = "";
 
-public bool idleUP = false;
+public const bool enablePID = true;
 
+
+
+public PID hoverYaw;
+public PID hoverRoll;
+public PID hoverCollective;
+
+Helicopter theHelicopter;
 
 IMyMotorStator mShaft;
 // tShaft and tailRotor are the same thing
@@ -25,34 +76,6 @@ IMyMotorStator tShaft;
 Rotor tailRotor;
 
 IMyShipController controller;
-
-public const float RPMtoRADs = (float)Math.PI / 30;
-
-
-
-public const float mouseSpeed = 0.09f;
-
-public const float collectiveDefault = 0.25f;
-public const float collectiveSensitivity = 0.3f;
-
-public const float mousepitch_sensitivity = 1f;
-public const float mouseyaw_sensitivity = 1f;
-public const float pitch_sensitivity = 1.3f;
-public const float yaw_sensitivity = 1.3f;
-public const float roll_sensitivity = 1.3f;
-
-
-
-Helicopter theHelicopter;
-
-public const float pDefault = 0.2f;
-public const float iDefault = 0.05f;
-public const float dDefault = 0.15f;
-
-
-
-
-
 
 
 
@@ -68,7 +91,7 @@ public Program() {
 #pragma warning disable 0162
 
 int counter = 0;
-public void Main(string argument) {
+public void Main(string argument, UpdateType runType) {
 	writeBool = false;
 
 	Echo($"{counter++}");
@@ -83,23 +106,10 @@ public void Main(string argument) {
 
 
 
+
+
 	// detect movement, used for flight assists (PIDs)
 	ShipIMU.Update(Runtime.TimeSinceLastRun.TotalSeconds);
-
-	// string output ="";
-	// output += string.Format("Velocity (Linear) [m/s]\n{0}\nVelocity (Angular) [rad/s]\n{1}\n",
-	// 		ShipIMU.VelocityLinearCurrent.ToString("0.000\n"),
-	// 		ShipIMU.VelocityAngularCurrent.ToString("0.000\n")
-	// 	);
-	// output += string.Format("Acceleration (Linear) [m/s²]\n{0}\nAcceleration (Angular) [rad/s²]\n{1}",
-	// 		ShipIMU.AccelerationLinearCurrent.ToString("0.00\n"),
-	// 		ShipIMU.AccelerationAngularCurrent.ToString("0.00\n")
-	// 	);
-	// output += string.Format("Jerk (Linear) [m/s³]\n{0}\nJerk (Angular) [rad/s³]\n{1}\n",
-	// 		ShipIMU.JerkLinearCurrent.ToString("0.000\n"),
-	// 		ShipIMU.JerkAngularCurrent.ToString("0.000\n")
-	// 	);
-	// write(output);
 
 
 
@@ -119,48 +129,78 @@ public void Main(string argument) {
 	translation.Y = controller.MoveIndicator.Y * collectiveSensitivity + collectiveDefault;
 
 	// pitch
-	rotation.X = controller.RotationIndicator.X * mousepitch_sensitivity * mouseSpeed * -1 +
-		controller.MoveIndicator.Z * pitch_sensitivity;
+	rotation.X += controller.RotationIndicator.X * mousepitch_sensitivity * mouse_sensitivity * -1;
+	rotation.X += controller.MoveIndicator.Z * pitch_sensitivity;
+	if(pitch_assist) {
+		rotation.X *= pid_sensitivity;
+	}
 	// yaw
-	rotation.Y = controller.RotationIndicator.Y * mouseyaw_sensitivity * mouseSpeed +
-		controller.MoveIndicator.X * yaw_sensitivity;
+	rotation.Y += controller.RotationIndicator.Y * mouseyaw_sensitivity * mouse_sensitivity;
+	rotation.Y += controller.MoveIndicator.X * yaw_sensitivity;
+	if(yaw_assist) {
+		rotation.Y *= pid_sensitivity;
+	}
 	// roll
 	rotation.Z = controller.RollIndicator * roll_sensitivity;
+	if(roll_assist) {
+		rotation.Z *= pid_sensitivity;
+	}
 
 
 
 
-
-	Vector3D counterhoverRotation = Vector3D.Zero;
-	Vector3D counterhoverTranslation = Vector3D.Zero;
-
-	Vector3D naturalGravity = controller.GetNaturalGravity();
-
-	naturalGravity = naturalGravity.TransformNormal(controller.WorldMatrix.Invert());
-
-
-	counterhoverRotation.X += naturalGravity.Z * -0.1f;
-	counterhoverRotation.X += ShipIMU.VelocityLinearCurrent.Z * -1f / 50;
-
-
-	counterhoverRotation.Z += naturalGravity.X * -0.1f;
-	counterhoverRotation.Z += ShipIMU.VelocityLinearCurrent.X * -1f / 50;
-
-	counterhoverTranslation += ShipIMU.VelocityLinearCurrent.Y * -1f / 50;
-
-	write("R: "+counterhoverRotation.Round(2));
-	write("T: "+counterhoverTranslation.Round(2));
-
-	rotation += counterhoverRotation;
-	translation += counterhoverTranslation;
-
-
-
+	if(autohover) {
+		apply_autohover(ref translation, ref rotation);
+	}
 
 
 
 	// set the blade angles
 	theHelicopter.go(translation, rotation);
+}
+
+public void apply_autohover(ref Vector3D translation, ref Vector3D rotation) {
+
+		Vector3D counterRotation = Vector3D.Zero;
+		Vector3D countertranslation = Vector3D.Zero;
+
+		Vector3D grav = controller.GetNaturalGravity();
+
+		grav = grav.TransformNormal(controller.WorldMatrix.Invert());
+
+		// rotate around the X axis based on the Z axis of gravity and movement
+		counterRotation.X += grav.Z * -0.1f;
+		counterRotation.X += ShipIMU.VelocityLinearCurrent.Z * -1f / 50;
+
+		// rotate around the Z axis based on the X axis of gravity
+		counterRotation.Z += grav.X * -0.1f;
+
+
+
+		// autohover PID controller for roll, this is separate to the assist PID controllers, measured is linear velocity rather than angular velocity
+		if(hoverRoll == null) {
+			hoverRoll = new PID(pDefault, iDefault - 0.02f, dDefault + 0.2f, this);
+		} else {
+			// rotate around the Z axis based on the X axis of movement
+			counterRotation.Z += hoverRoll.update(0, ShipIMU.VelocityLinearCurrent.X * 1f / 50);
+		}
+
+		// autohover PID controller for collective, this is separate to the assist PID controllers, measured is linear velocity rather than angular velocity
+		if(hoverCollective == null) {
+			hoverCollective = new PID(pDefault, iDefault, dDefault, this);
+		} else {
+
+			// limit the hover collective based on the actual collective, this stops the PID from countering the users input
+			hoverCollective.iLimit = 5 / ((translation.Y > 0 ? 1 : -1) + translation.Y * 5);
+
+			// apply collective on the Y axis based on the movement along the Y axis
+			countertranslation.Y += hoverCollective.update(0, ShipIMU.VelocityLinearCurrent.Y * 1f / 50);
+		}
+
+
+		// apply our calculations to the references we were given
+		rotation += counterRotation;
+		translation += countertranslation;
 }
 
 
@@ -203,6 +243,13 @@ public bool setup() {
 	heliRotors.Add("Anti Torque", new Pair<SwashPlate, IControlsConvert>(antiTrq, new antiTrqRotorConvert()));
 
 	theHelicopter = new Helicopter(this, controller, heliRotors);
+
+	theHelicopter.is_PID_pitch_active = pitch_assist;
+	theHelicopter.is_PID_yaw_active = yaw_assist;
+	theHelicopter.is_PID_roll_active = roll_assist;
+	theHelicopter.is_PID_tX_active = false;
+	theHelicopter.is_PID_tY_active = false;
+	theHelicopter.is_PID_tZ_active = false;
 
 	return true;
 }
@@ -264,89 +311,6 @@ public static double angleBetweenCos(Vector3D a, Vector3D b, double len) {
 	return dot/len;
 }
 
-
-public class PID {
-
-	public Program prog;
-
-	public float pmul = 1;
-	public float imul = 0;
-	public float dmul = 0;
-
-	private double lasterror = 0;
-	private double integral = 0;
-
-	public double iLimit = 8;
-	public bool ClampI = true;
-
-	public string info = "";
-	public bool printinfo = false;
-
-	public PID(Program prog) {
-		this.prog = prog;
-	}
-
-	public PID(float proportional, float integral, float derivative, Program prog) : this(prog) {
-		this.pmul = proportional;
-		this.imul = integral;
-		this.dmul = derivative;
-	}
-
-	public double update(double setpoint, double measured) {
-		double error = setpoint - measured;
-		return update(error);
-	}
-
-	public double update(double error) {
-		if(!enablePID) return error;
-
-		double deltaT = prog.Runtime.TimeSinceLastRun.TotalMilliseconds;
-		deltaT = (deltaT == 0 ? 1 : deltaT);
-
-		integral *= prog.idecay;
-		integral += error/deltaT;
-		double derivative = (error - lasterror) / deltaT;
-		lasterror = error;
-
-		if(ClampI) {
-			integral = Clamp(integral, iLimit, -1 * iLimit);
-		}
-
-		if(printinfo) {
-			info =
-				$@"P: {error * pmul}
-				I: {integral * imul}
-				D: {-1 * derivative * dmul}";
-		}
-		return error * pmul + integral * imul + -1 * derivative * dmul;
-	}
-
-	public static T Clamp<T>(T val, T a, T b) where T : IComparable<T> {
-		T max;
-		T min;
-
-		int comp = a.CompareTo(b);
-		if(comp > 0) {
-			max = a;
-			min = b;
-		} else if(comp < 0) {
-			max = b;
-			min = a;
-		} else {
-			return a;
-		}
-
-		if(val.CompareTo(max) > 0) {
-			val = max;
-		}
-
-		if(val.CompareTo(min) < 0) {
-			val = min;
-		}
-
-		return val;
-	}
-}
 
 // set the angle to be between -pi and pi radians (0 and 360 degrees)
 // this takes and returns radians
@@ -673,6 +637,89 @@ public class Rotor {
 
 	public double setFromVec(Vector3D desiredVec) {
 		return setFromVec(desiredVec, 1);
+	}
+}
+
+public class PID {
+
+	public Program prog;
+
+	public float pmul = 1;
+	public float imul = 0;
+	public float dmul = 0;
+
+	private double lasterror = 0;
+	private double integral = 0;
+
+	public double iLimit = 8;
+	public bool ClampI = true;
+
+	public string info = "";
+	public bool printinfo = false;
+
+	public PID(Program prog) {
+		this.prog = prog;
+	}
+
+	public PID(float proportional, float integral, float derivative, Program prog) : this(prog) {
+		this.pmul = proportional;
+		this.imul = integral;
+		this.dmul = derivative;
+	}
+
+	public double update(double setpoint, double measured) {
+		double error = setpoint - measured;
+		return update(error);
+	}
+
+	public double update(double error) {
+		if(!enablePID) return error;
+
+		double deltaT = prog.Runtime.TimeSinceLastRun.TotalMilliseconds;
+		deltaT = (deltaT == 0 ? 1 : deltaT);
+
+		integral *= prog.idecay;
+		integral += error/deltaT;
+		double derivative = (error - lasterror) / deltaT;
+		lasterror = error;
+
+		if(ClampI) {
+			integral = Clamp(integral, iLimit, -1 * iLimit);
+		}
+
+		if(printinfo) {
+			info =
+				$@"P: {error * pmul}
+				I: {integral * imul}
+				D: {-1 * derivative * dmul}";
+		}
+		return error * pmul + integral * imul + -1 * derivative * dmul;
+	}
+
+	public static T Clamp<T>(T val, T a, T b) where T : IComparable<T> {
+		T max;
+		T min;
+
+		int comp = a.CompareTo(b);
+		if(comp > 0) {
+			max = a;
+			min = b;
+		} else if(comp < 0) {
+			max = b;
+			min = a;
+		} else {
+			return a;
+		}
+
+		if(val.CompareTo(max) > 0) {
+			val = max;
+		}
+
+		if(val.CompareTo(min) < 0) {
+			val = min;
+		}
+
+		return val;
 	}
 }
 
