@@ -7,7 +7,7 @@ public bool yaw_assist = true;
 
 // make the helicopter try to self-level and reduce velocity to 0
 // this controls absolute speed
-public bool autohover = true;
+public bool autohover = false;
 
 
 
@@ -43,20 +43,37 @@ public const float pid_sensitivity = 6f;
 
 
 // control module joystick / gamepad bindings
+// tell the game to use your joystick
+// 			options > controls > Joystick or Gamepad
 // type "/cm showinputs" into chat
-// press the desired button
-// put that text EXACTLY as it is in the quotes for the control you want
-public const string jsPitchAxis = "";
-public const string jsYawAxis = "";
-public const string jsRollAxis = "";
-public const string jsCollectiveAxis = "";
-// ^ those are the names for my joystick
+// press move the desired axis
+// put that name as it is in the quotes for the control you want, caps matter
 
-// multiply by -1 to reverse, or 0.5 to half, etc...
-public const float jsPitchAxis_sensitivity = 1f;
-public const float jsYawAxis_sensitivity = 1f;
-public const float jsRollAxis_sensitivity = 1f;
-public const float jsCollectiveAxis_sensitivity = 1f;
+// if there is a positive and negative version:
+// 		use the first and second quotes in the pair, otherwise leave one set of quotes blank
+// if there are 2 values for one name, like a joystick:
+// 		put 'X' and 'Y' at the end to specify which axis you want
+
+// i have entered the names for my joystick with the controls i want
+public string[] jsPitchAxis = new string[] {"g.lsanalogY", ""}; //the pitch and roll are combined into one on my joystick, so i have to specify X or Y (at the end there)
+public string[] jsYawAxis = new string[] {"g.rotz+analog", "g.rotz-analog"}; //the yaw on my joystick has positive and negative instead of one number
+public string[] jsRollAxis = new string[] {"g.lsanalogX", ""};
+public string[] jsCollectiveAxis = new string[] {"g.slider1-analog", "g.slider1+analog"};
+
+// The game maps controls wrongly for a heli, and the program can't distinguish them.
+// use 'disableNormalCMControls' to disable the controls above, but still apply the controls below.
+// 		make the joystick unresponsive with the normal controls disabled
+// 		then you can enable the normal controls and it should behave nicely.
+public const bool disableNormalCMControls = false;
+public string[] forward_back = new string[] {"", "g.lsanalogY"}; // none of the split ones on my joystick affect the game controls
+public string[] right_left = new string[] {"", "g.lsanalogX"};
+public string[] up_down = new string[] {"", ""};
+
+// -1 to reverse, or 0.5 to half, etc...
+public const float jsPitchAxis_sensitivity = 0.3f;
+public const float jsYawAxis_sensitivity = 0.3f;
+public const float jsRollAxis_sensitivity = 0.3f;
+public const float jsCollectiveAxis_sensitivity = 0.3f;
 
 
 
@@ -146,6 +163,18 @@ public void Main(string argument, UpdateType runType) {
 
 
 
+	apply_controls(ref translation, ref rotation);
+
+	write(
+		$@"
+		Pitch:      {progressBar((rotation.Z + 1) / 2)}
+		Yaw:        {progressBar((rotation.Y + 1) / 2)}
+		Roll:       {progressBar((rotation.X + 1) / 2)}
+		Collective: {progressBar((translation.Y + 1) / 2)}"
+		);
+
+
+	// write($"T: {translation.Round(1)}\nR: {rotation.Round(1)}");
 
 
 	if(autohover) {
@@ -158,48 +187,162 @@ public void Main(string argument, UpdateType runType) {
 	theHelicopter.go(translation, rotation);
 }
 
-public void apply_controls(ref Vector3D translation, ref Vector3D rotation) {
+public string apply_controls(ref Vector3D translation, ref Vector3D rotation) {
 
-	// mouse + kb
-
-	// collective
-	translation.Y = controller.MoveIndicator.Y * collectiveSensitivity + collectiveDefault;
-
-	// pitch
-	rotation.X += controller.RotationIndicator.X * mousepitch_sensitivity * mouse_sensitivity * -1;
-	rotation.X += controller.MoveIndicator.Z * pitch_sensitivity;
-	if(pitch_assist) {
-		rotation.X *= pid_sensitivity;
-	}
-	// yaw
-	rotation.Y += controller.RotationIndicator.Y * mouseyaw_sensitivity * mouse_sensitivity;
-	rotation.Y += controller.MoveIndicator.X * yaw_sensitivity;
-	if(yaw_assist) {
-		rotation.Y *= pid_sensitivity;
-	}
-	// roll
-	rotation.Z = controller.RollIndicator * roll_sensitivity;
-	if(roll_assist) {
-		rotation.Z *= pid_sensitivity;
-	}
-
+	Vector3D movement = controller.MoveIndicator;
 
 
 
 	// joystick / gamepad (requires control module)
 	if(controlModule) {
-		// setup control module
-		Dictionary<string, object> inputs = new Dictionary<string, object>();
-		try {
-			inputs = Me.GetValue<Dictionary<string, object>>("ControlModule.Inputs");
-			Me.SetValue<string>("ControlModule.AddInput", "all");
-			Me.SetValue<bool>("ControlModule.RunOnInput", true);
-			Me.SetValue<int>("ControlModule.InputState", 1);
-			Me.SetValue<float>("ControlModule.RepeatDelay", 0.016f);
-		} catch(Exception e) {
-			controlModule = false;
+		do {
+
+			// setup control module
+			Dictionary<string, object> inputs = new Dictionary<string, object>();
+			try {
+				inputs = Me.GetValue<Dictionary<string, object>>("ControlModule.Inputs");
+				Me.SetValue<string>("ControlModule.AddInput", "all");
+				Me.SetValue<bool>("ControlModule.RunOnInput", false);
+				// Me.SetValue<int>("ControlModule.InputState", 1);
+				// Me.SetValue<float>("ControlModule.RepeatDelay", 0.016f);
+			} catch(Exception e) {
+				controlModule = false;
+				continue;
+			}
+
+
+			string errors = "";
+
+			if(!disableNormalCMControls) {
+
+				if(errors != null) { errors += "Normal Controls:";}
+				rotation.X += applyControl(inputs, jsPitchAxis[0], 1f * jsPitchAxis_sensitivity, ref errors);
+				rotation.X += applyControl(inputs, jsPitchAxis[1], -1f * jsPitchAxis_sensitivity, ref errors);
+
+				rotation.Y += applyControl(inputs, jsYawAxis[0], 1f * jsYawAxis_sensitivity, ref errors);
+				rotation.Y += applyControl(inputs, jsYawAxis[1], -1f * jsYawAxis_sensitivity, ref errors);
+
+				rotation.Z += applyControl(inputs, jsRollAxis[0], 1f * jsRollAxis_sensitivity, ref errors);
+				rotation.Z += applyControl(inputs, jsRollAxis[1], -1f * jsRollAxis_sensitivity, ref errors);
+
+				translation.Y += applyControl(inputs, jsCollectiveAxis[0], 1f * jsCollectiveAxis_sensitivity, ref errors);
+				translation.Y += applyControl(inputs, jsCollectiveAxis[1], -1f * jsCollectiveAxis_sensitivity, ref errors);
+			} else {
+				Vector3D move = controller.MoveIndicator;
+				write(move.Round(1).ToString());
+
+				if(errors != null) { errors += "Normal Controls Disabled for debug";}
+			}
+
+
+			if(errors != null) { errors += "\n\nMovement Counter:";}
+
+			movement.Z += applyControl(inputs, forward_back[0], 1, ref errors);
+			movement.Z += applyControl(inputs, forward_back[1], -1, ref errors);
+			movement.X += applyControl(inputs, right_left[0], 1, ref errors);
+			movement.X += applyControl(inputs, right_left[1], -1, ref errors);
+			movement.Y += applyControl(inputs, up_down[0], 1, ref errors);
+			movement.Y += applyControl(inputs, up_down[1], -1, ref errors);
+
+			Echo(errors);
+
+		} while(false);
+	}
+
+
+
+
+	// mouse + kb
+
+	// collective
+	translation.Y += movement.Y * collectiveSensitivity + collectiveDefault;
+
+	// pitch
+	rotation.X += controller.RotationIndicator.X * mousepitch_sensitivity * mouse_sensitivity * -1;
+	rotation.X += movement.Z * pitch_sensitivity;
+	if(pitch_assist) {
+		rotation.X *= pid_sensitivity;
+	}
+	// yaw
+	rotation.Y += controller.RotationIndicator.Y * mouseyaw_sensitivity * mouse_sensitivity;
+	rotation.Y += movement.X * yaw_sensitivity;
+	if(yaw_assist) {
+		rotation.Y *= pid_sensitivity;
+	}
+	// roll
+	rotation.Z += controller.RollIndicator * roll_sensitivity;
+	if(roll_assist) {
+		rotation.Z *= pid_sensitivity;
+	}
+
+
+	// return $"R: {rotation.Round(1)}\nT: {translation.Round(1)}";
+	return null;
+}
+
+
+// returns value of inputs[key], and handles the vector2 thing
+public double applyControl(Dictionary<string, object> inputs, string key, float multiplier) {
+	string errors = null;
+	return applyControl(inputs, key, multiplier, ref errors);
+}
+
+// writes to error string
+// returns value of inputs[key], and handles the vector2 thing
+public double applyControl(Dictionary<string, object> inputs, string key, float multiplier, ref string errors) {
+	if(key == "") {
+		if(errors != null) errors += $"\nKey Empty";
+		return 0;
+	}
+
+
+	if(inputs.ContainsKey(key)) {
+		if(inputs[key] is Vector2) {
+			if(errors != null) errors += $"\nKey '{key}' is a vector, must specify X or Y";
+		}
+		// apply the value
+		if(errors != null) errors += $"\nKey '{key}' {(float)inputs[key] * multiplier}";
+		return (float)inputs[key] * multiplier;
+	} else {
+		string newkey = key.Substring(0, key.Length - 1);
+		if(inputs.ContainsKey(newkey)) {
+			if(!(inputs[newkey] is Vector2)) {
+				// warn that its not a vector2 but they gave an X or Y value
+				if(errors != null) errors += $"\nKey '{key}' not found";
+				return 0;
+			}
+			if(is_X(key)) {
+				// apply the X or Y
+				if(errors != null) errors += $"\nKey '{key}' {((Vector2)inputs[newkey]).X * multiplier}";
+				return ((Vector2)inputs[newkey]).X * multiplier;
+			} else if(is_Y(key)) {
+				// apply the X or Y
+				if(errors != null) errors += $"\nKey '{key}' {((Vector2)inputs[newkey]).Y * multiplier}";
+				return ((Vector2)inputs[newkey]).Y * multiplier;
+			} else {
+				// warn that there is no x or y, but the key minus the last char is valid
+				if(errors != null) errors += $"\nKey '{key}' without last character matches but doesn't have X or Y";
+				return 0;
+			}
+		} else {
+			if(errors != null) errors += $"\nKey '{key}' {0}";
+			return 0;
 		}
 	}
+}
+
+
+public bool is_X(string val) {
+	if(val.ToLower()[val.Length - 1] == 'x') {
+		return true;
+	}
+	return false;
+}
+public bool is_Y(string val) {
+	if(val.ToLower()[val.Length - 1] == 'y') {
+		return true;
+	}
+	return false;
 }
 
 public void apply_autohover(ref Vector3D translation, ref Vector3D rotation) {
