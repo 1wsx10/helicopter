@@ -9,6 +9,8 @@ public bool yaw_assist = true;
 // this controls absolute speed
 public bool autohover = false;
 
+// set to -1 for the fastest speed in the game (changes with mods)
+public float maxRotorRPM = -1f;
 
 
 
@@ -18,12 +20,11 @@ public bool autohover = false;
 
 
 
+public const float RADsToRPM = 30 / (float)Math.PI;
 
 
 
-
-
-public const float collectiveDefault = 0.03f;
+public const float collectiveDefault = 0.03f * 0;
 
 
 // multiply by -1 to reverse, or 0.5 to half, etc...
@@ -94,6 +95,8 @@ public float idecay = 1f;
 // "imertial measurement unit"
 Kinematics ShipIMU;
 
+Kinematics mainRotorMonitor;
+
 public string log = "";
 
 public const bool enablePID = true;
@@ -141,12 +144,25 @@ public void Main(string argument, UpdateType runType) {
 
 
 
+	if(argument == "toggle") {
 
+		pitch_assist = !pitch_assist;
+		roll_assist = !roll_assist;
+		yaw_assist = !yaw_assist;
+	}
 
 
 
 	// detect movement, used for flight assists (PIDs)
 	ShipIMU.Update(Runtime.TimeSinceLastRun.TotalSeconds);
+
+	if(mainRotorMonitor == null) {
+		mainRotorMonitor = new Kinematics(mShaft, mShaft.Top);
+	} else {
+		mainRotorMonitor.Update(Runtime.TimeSinceLastRun.TotalSeconds);
+
+		write($"main rotor RPM:\n{(mainRotorMonitor.VelocityAngularCurrent * RADsToRPM).Round(0).Y}");
+	}
 
 
 
@@ -167,9 +183,9 @@ public void Main(string argument, UpdateType runType) {
 
 	write(
 		$@"
-		Pitch:      {progressBar((rotation.Z + 1) / 2)}
+		Roll:       {progressBar((rotation.Z + 1) / 2)}
 		Yaw:        {progressBar((rotation.Y + 1) / 2)}
-		Roll:       {progressBar((rotation.X + 1) / 2)}
+		Pitch:      {progressBar((rotation.X + 1) / 2)}
 		Collective: {progressBar((translation.Y + 1) / 2)}"
 		);
 
@@ -394,13 +410,18 @@ public bool setup() {
 
 	// TODO: make this check
 
+	Echo("Setup A");
 	controller = (IMyShipController)GridTerminalSystem.GetBlockWithName("Cockpit Forward");
+	Echo("Setup B");
 
 	ShipIMU = new Kinematics((IMyEntity)controller, null);
+	Echo("Setup C");
 
 	// get rotors
 	mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
+	Echo("Setup D " + mShaft.CustomName);
 	tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor");
+	Echo("Setup E " + tShaft.CustomName);
 
 	IMyMotorStator[] mainSwashRotors = new IMyMotorStator[] {
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"),
@@ -408,6 +429,9 @@ public bool setup() {
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor C"),
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor D")
 	};
+	for(int i = 0; i < mainSwashRotors.Length; i++) {
+		Echo("Setup F " + mainSwashRotors[i].CustomName);
+	}
 
 	IMyMotorStator[] antiTrqRotors = new IMyMotorStator[] {
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor A"),
@@ -415,20 +439,30 @@ public bool setup() {
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor C"),
 		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor D")
 	};
+	for(int i = 0; i < mainSwashRotors.Length; i++) {
+		Echo("Setup G " + antiTrqRotors[i].CustomName);
+	}
 
 	tailRotor = new Rotor(controller, tShaft);
+	Echo("Setup H");
 
 	// construct swashplates
 	SwashPlate mainSwash = new SwashPlate(controller, mainSwashRotors, mShaft);
+	Echo("Setup I");
 	SwashPlate antiTrq = new SwashPlate(controller, antiTrqRotors, tShaft);
+	Echo("Setup J");
 
 
 	Dictionary<string, Pair<SwashPlate, IControlsConvert>> heliRotors = new Dictionary<string, Pair<SwashPlate, IControlsConvert>>();
+	Echo("Setup K");
 
 	heliRotors.Add("Main Swashplate", new Pair<SwashPlate, IControlsConvert>(mainSwash, new mainRotorConvert()));
+	Echo("Setup L");
 	heliRotors.Add("Anti Torque", new Pair<SwashPlate, IControlsConvert>(antiTrq, new antiTrqRotorConvert()));
+	Echo("Setup M");
 
 	theHelicopter = new Helicopter(this, controller, heliRotors);
+	Echo("Setup N");
 
 	theHelicopter.is_PID_pitch_active = pitch_assist;
 	theHelicopter.is_PID_yaw_active = yaw_assist;
@@ -778,6 +812,11 @@ public class Rotor {
 	public Rotor(IMyShipController controller, IMyMotorStator rotor) {
 		this.controller = controller;
 		this.theBlock = rotor;
+
+
+		if(maxRotorRPM <= 0) {
+			maxRotorRPM	= rotor.GetMaximum<float>("Velocity");
+		}
 	}
 
 	// sets the forward direction from world space
@@ -792,7 +831,6 @@ public class Rotor {
 
 	/*===| Part of Rotation By Equinox on the KSH discord channel. |===*/
 	private void PointRotorAtVector(IMyMotorStator rotor, Vector3D targetDirection, Vector3D currentDirection, float multiplier) {
-		float maxRotorRPM = theBlock.GetMaximum<float>("Velocity");
 		double errorScale = Math.PI * maxRotorRPM;
 
 		Vector3D angle = Vector3D.Cross(targetDirection, currentDirection);
