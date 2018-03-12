@@ -10,7 +10,7 @@ public bool yaw_assist = true;
 public bool autohover = false;
 
 // set to -1 for the fastest speed in the game (changes with mods)
-public float maxRotorRPM = -1f;
+public const float maxRotorRPM = -1f;
 
 
 
@@ -423,33 +423,13 @@ public bool setup() {
 	tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor");
 	Echo("Setup E " + tShaft.CustomName);
 
-	IMyMotorStator[] mainSwashRotors = new IMyMotorStator[] {
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor A"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor B"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor C"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor D")
-	};
-	for(int i = 0; i < mainSwashRotors.Length; i++) {
-		Echo("Setup F " + mainSwashRotors[i].CustomName);
-	}
-
-	IMyMotorStator[] antiTrqRotors = new IMyMotorStator[] {
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor A"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor B"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor C"),
-		(IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor D")
-	};
-	for(int i = 0; i < mainSwashRotors.Length; i++) {
-		Echo("Setup G " + antiTrqRotors[i].CustomName);
-	}
-
-	tailRotor = new Rotor(controller, tShaft);
+	tailRotor = new Rotor(tShaft);
 	Echo("Setup H");
 
 	// construct swashplates
-	SwashPlate mainSwash = new SwashPlate(controller, mainSwashRotors, mShaft);
+	SwashPlate mainSwash = new SwashPlate(this, controller, mShaft);
 	Echo("Setup I");
-	SwashPlate antiTrq = new SwashPlate(controller, antiTrqRotors, tShaft);
+	SwashPlate antiTrq = new SwashPlate(this, controller, tShaft);
 	Echo("Setup J");
 
 
@@ -706,18 +686,45 @@ public class SwashPlate {
 	public IMyShipController controller;
 	public IMyMotorStator rotorShaft;
 
+	public Program prog;
+
 	public string theStr = "";
 	public bool printinfo = false;
 
 	public float maxValue = 1f;
 
-	public SwashPlate(IMyShipController controller, IMyMotorStator[] blades, IMyMotorStator rotorShaft) {
+	// auto-detect rotor blades
+	public SwashPlate(Program prog, IMyShipController controller, IMyMotorStator rotorShaft) {
 		this.controller = controller;
 		this.rotorShaft = rotorShaft;
+		this.prog = prog;
+
+		// get all rotors whose grid is the same as the rotor shaft top grid
+		List<IMyMotorStator> blocks = new List<IMyMotorStator>();
+		prog.GridTerminalSystem.GetBlocksOfType<IMyMotorStator>(blocks, block => block.CubeGrid.EntityId == rotorShaft.TopGrid.EntityId);
+
+		this.blades = new List<Rotor>();
+		foreach(IMyMotorStator motor in blocks) {
+			Rotor current = new Rotor(motor);
+
+			// forward direction is reversed if the main rotor is in reverse
+			current.setForwardDir(Vector3D.Cross(rotorShaft.WorldMatrix.Up, motor.WorldMatrix.Up) * (rotorShaft.TargetVelocityRPM > 0 ? 1 : -1));
+			// current.headOffset = current.localForwardDir; //no offset
+			// current.headOffset = new Vector3D(-1,0,0);
+
+			this.blades.Add(current);
+		}
+	}
+
+	// only use the given rotor blades
+	public SwashPlate(Program prog, IMyShipController controller, IMyMotorStator[] blades, IMyMotorStator rotorShaft) {
+		this.controller = controller;
+		this.rotorShaft = rotorShaft;
+		this.prog = prog;
 
 		this.blades = new List<Rotor>();
 		foreach(IMyMotorStator motor in blades) {
-			Rotor current = new Rotor(controller, motor);
+			Rotor current = new Rotor(motor);
 
 			// forward direction is reversed if the main rotor is in reverse
 			current.setForwardDir(Vector3D.Cross(rotorShaft.WorldMatrix.Up, motor.WorldMatrix.Up) * (rotorShaft.TargetVelocityRPM > 0 ? 1 : -1));
@@ -800,7 +807,8 @@ public class SwashPlate {
 public class Rotor {
 
 	public IMyMotorStator theBlock;
-	public IMyShipController controller;
+
+	public readonly float maxRotorRPM;
 
 	public Vector3D localForwardDir = new Vector3D(0, 0, -1);
 	// this should be the forward direction local to the rotor head
@@ -809,13 +817,14 @@ public class Rotor {
 	public string theString;
 
 
-	public Rotor(IMyShipController controller, IMyMotorStator rotor) {
-		this.controller = controller;
+	public Rotor(IMyMotorStator rotor) {
 		this.theBlock = rotor;
 
 
-		if(maxRotorRPM <= 0) {
+		if(Program.maxRotorRPM <= 0) {
 			maxRotorRPM	= rotor.GetMaximum<float>("Velocity");
+		} else {
+			maxRotorRPM = Program.maxRotorRPM;
 		}
 	}
 
