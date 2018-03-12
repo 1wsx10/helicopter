@@ -124,6 +124,10 @@ public bool controlModule = true;
 
 public Program() {
 	setup();
+
+	if(!Me.CustomName.ToLower().Contains("heli")) {
+		Me.CustomName = "Heli " + Me.CustomName;
+	}
 }
 
 
