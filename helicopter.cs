@@ -24,7 +24,7 @@ public const float RADsToRPM = 30 / (float)Math.PI;
 
 
 
-public const float collectiveDefault = 0.03f * 0;
+public const float collectiveDefault = 0.03f;
 
 
 // multiply by -1 to reverse, or 0.5 to half, etc...
@@ -148,11 +148,15 @@ public void Main(string argument, UpdateType runType) {
 
 
 
-	if(argument == "toggle") {
-
-		pitch_assist = !pitch_assist;
-		roll_assist = !roll_assist;
-		yaw_assist = !yaw_assist;
+	switch(argument.ToLower()) {
+		case "toggleassists":
+			pitch_assist = !pitch_assist;
+			roll_assist = !roll_assist;
+			yaw_assist = !yaw_assist;
+		break;
+		case "toggleautohover":
+			autohover = !autohover;
+		break;
 	}
 
 
@@ -165,7 +169,14 @@ public void Main(string argument, UpdateType runType) {
 	} else {
 		mainRotorMonitor.Update(Runtime.TimeSinceLastRun.TotalSeconds);
 
-		write($"main rotor RPM:\n{(mainRotorMonitor.VelocityAngularCurrent * RADsToRPM).Round(0).Y}");
+		int RPM = (int)(mainRotorMonitor.VelocityAngularCurrent * RADsToRPM).Y;
+
+		if(RPM < 30) {
+			// reset the PIDs
+			theHelicopter.resetPIDs();
+		}
+
+		write($"main rotor RPM:\n{RPM}");
 	}
 
 
@@ -580,6 +591,28 @@ public class Helicopter {
 		}
 	}
 
+	public void resetPIDs() {
+
+		if(PID_pitch != null) {
+			PID_pitch.integral = 0;
+		}
+		if(PID_yaw != null) {
+			PID_yaw.integral = 0;
+		}
+		if(PID_roll != null) {
+			PID_roll.integral = 0;
+		}
+		if(PID_tX != null) {
+			PID_tX.integral = 0;
+		}
+		if(PID_tY != null) {
+			PID_tY.integral = 0;
+		}
+		if(PID_tZ != null) {
+			PID_tZ.integral = 0;
+		}
+	}
+
 	public void go(Vector3D translation, Vector3D rotation) {
 
 
@@ -886,7 +919,7 @@ public class PID {
 	public float dmul = 0;
 
 	private double lasterror = 0;
-	private double integral = 0;
+	public double integral = 0;
 
 	public double iLimit = 8;
 	public bool ClampI = true;
