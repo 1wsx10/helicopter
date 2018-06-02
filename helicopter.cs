@@ -144,9 +144,6 @@ public IMyTimerBlock timer;
 //weather control module is active (gets worked out by program)
 public bool controlModule = true;
 
-//weather we just compiled
-public bool justCompiled = true;
-
 //weather we want the engine on
 public bool engineEnabled = false;
 //weather we just started the engine
@@ -163,13 +160,14 @@ public const float RADsToRPM = 30 / (float)Math.PI;
 public bool wasUnderControl = false;
 
 
+//lets just not use this...
 public Program() {
-	// setup();
-
-	if(!Me.CustomName.ToLower().Contains("heli")) {
-		Me.CustomName = "Heli " + Me.CustomName;
-	}
+	Runtime.UpdateFrequency = UpdateFrequency.Update100;
 }
+//use this instead
+//weather we just compiled
+public int justCompiled = 0;
+
 
 
 // remove unreachable code warning
@@ -177,12 +175,22 @@ public Program() {
 
 int counter = 0;
 public void Main(string argument, UpdateType runType) {
-	if(justCompiled) {
+	if(!Me.CustomName.ToLower().Contains("heli")) {
+		Me.CustomName = "Heli " + Me.CustomName;
+	}
+
+	//shit breaks on the very first run for some reason
+	if(justCompiled == 0) {
+		justCompiled++;
+		return;
+	}
+
+	if(justCompiled == 1) {
 		if(!setup()) {
 			Echo("Error in Setup");
 			return;
 		}
-		justCompiled = !justCompiled;
+		justCompiled++;
 	}
 	writeBool = false;
 
@@ -203,9 +211,9 @@ public void Main(string argument, UpdateType runType) {
 		wasUnderControl = false;
 		return;
 	} else if(!wasUnderControl) {
-		Runtime.UpdateFrequency = UpdateFrequency.None;
 		timer.Enabled = true;
 	}
+	Runtime.UpdateFrequency = UpdateFrequency.None;
 	wasUnderControl = true;
 
 
