@@ -1,3 +1,7 @@
+public const string assistsArg = "assists":
+public const string hoverArg = "auto hover":
+public const string ignitionArg = "engine":
+
 
 // turn on PID controllers for each axis
 // these control rotation speed and have nothing to do with absolute speed
@@ -9,21 +13,16 @@ public bool yaw_assist = true;
 // this controls absolute speed
 public bool autohover = false;
 
-// set to -1 for the fastest speed in the game (changes with mods)
-public const float maxRotorRPM = -1f;
+//names of different blocks
+//don't worry about the rotors which directly control the helicopter blades, those are detected automatically.
+public const string controllerN = "Cockpit Forward";//cockpit
+public const string mShaftN = "MRotor";//main rotor
+public const string tShaftN = "TRotor";//tail rotor
+public const string timerN = "Heli Timer Block";//timer block which triggers this PB
 
 
 
-
-
-
-
-
-
-public const float RADsToRPM = 30 / (float)Math.PI;
-
-
-
+//increase this if your heli sinks when trying to hover
 public const float collectiveDefault = 0.03f;
 
 
@@ -33,14 +32,15 @@ public const float mouse_sensitivity = 0.09f;
 
 public const float collectiveSensitivity 	= overall_sensitivity * 0.3f;
 
-public const float mousepitch_sensitivity 	= overall_sensitivity * 1f / 1f;
-public const float mouseyaw_sensitivity 	= overall_sensitivity * 1f / 1f;
-public const float pitch_sensitivity 		= overall_sensitivity * 1.3f / 1f;
-public const float yaw_sensitivity 			= overall_sensitivity * 1.3f / 1f;
-public const float roll_sensitivity 		= overall_sensitivity * 1.3f / 1f;
+public const float mousepitch_sensitivity 	= overall_sensitivity * 1f;
+public const float mouseyaw_sensitivity 	= overall_sensitivity * 1f;
+public const float pitch_sensitivity 		= overall_sensitivity * 1.3f;
+public const float yaw_sensitivity 			= overall_sensitivity * 1.3f;
+public const float roll_sensitivity 		= overall_sensitivity * 1.3f;
 
 // sensitivity adjustment when flight assists are active
 public const float pid_sensitivity = 1f;
+
 
 
 // control module joystick / gamepad bindings
@@ -77,6 +77,32 @@ public const float jsRollAxis_sensitivity = 0.3f;
 public const float jsCollectiveAxis_sensitivity = 0.3f;
 
 
+// set to -1 for the fastest speed in the game (changes with mods)
+public const float maxRotorRPM = -1f;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//--------------------------don't touch anything below here--------------------------
 
 // default PID values
 public const float pDefault = 0.2f;
@@ -86,41 +112,53 @@ public const float dDefault = 0.15f;
 // I value is multiplied by this, so you can make it slowly decay
 public float idecay = 1f;
 
-
-
-
-
-
-
 // "imertial measurement unit"
-Kinematics ShipIMU;
+public Kinematics ShipIMU;
+// for watching RPM
+public Kinematics mainRotorMonitor;
 
-Kinematics mainRotorMonitor;
-
+//event log
 public string log = "";
 
+//weather we are using PID controllers at all (almost certainly)
 public const bool enablePID = true;
 
-
-
+//pid controllers for high level controls
 public PID hoverYaw;
 public PID hoverRoll;
 public PID hoverCollective;
 
-Helicopter theHelicopter;
+//...yep
+public Helicopter theHelicopter;
 
-IMyMotorStator mShaft;
+// main rotor shaft
+public IMyMotorStator mShaft;
+
 // tShaft and tailRotor are the same thing
-IMyMotorStator tShaft;
-Rotor tailRotor;
+public IMyMotorStator tShaft;
+public Rotor tailRotor;
 
-IMyShipController controller;
+public IMyShipController controller;
+public IMyTimerBlock timer;
 
+//weather control module is active (gets worked out by program)
 public bool controlModule = true;
 
+//weather we just compiled
 public bool justCompiled = true;
 
+//weather we want the engine on
+public bool engineEnabled = false;
+//weather we just started the engine
+public bool slowStart = false;
+public PID slowStartController = null;
+//used to figure out derivative of RPM for slow start
+public float lastRPM = 0;
+public float RPM = 0;
 
+
+//just a math constant
+public const float RADsToRPM = 30 / (float)Math.PI;
 
 
 
@@ -155,17 +193,31 @@ public void Main(string argument, UpdateType runType) {
 	Echo(log);
 
 
+	// assistsArg = "assists":
+	// hoverArg = "auto hover":
+	// ignitionArg = "engine":
 
 	switch(argument.ToLower()) {
-		case "toggleassists":
+
+		case assistsArg.ToLower():
 			pitch_assist = !pitch_assist;
 			roll_assist = !roll_assist;
 			yaw_assist = !yaw_assist;
 		break;
-		case "toggleautohover":
+
+		case hoverArg.ToLower():
 			autohover = !autohover;
 		break;
+
+		case ignitionArg.ToLower():
+			engineEnabled = !engineEnabled;
+			mShaft.Enabled = engineEnabled;
+			slowStart = engineEnabled;
+			slowStartController = new PID(1, 1, 1, this);
+			slowStartController.ClampI = false;
+		break;
 	}
+
 
 
 
@@ -177,16 +229,38 @@ public void Main(string argument, UpdateType runType) {
 	} else {
 		mainRotorMonitor.Update(Runtime.TimeSinceLastRun.TotalSeconds);
 
-		int RPM = (int)(mainRotorMonitor.VelocityAngularCurrent * RADsToRPM).Y;
-
-		if(RPM < 30) {
-			// reset the PIDs
-			theHelicopter.resetPIDs();
-		}
-
-		write($"main rotor RPM: {RPM}\n");
+		RPM = (int)(mainRotorMonitor.VelocityAngularCurrent * RADsToRPM).Y;
 	}
 
+	if(RPM < 30) {
+		// reset the PIDs
+		theHelicopter.resetPIDs();
+	}
+
+	float maxTorque = mShaft.GetMaximum<float>("Torque");
+	float maxVelocity = mShaft.GetMaximum<float>("Velocity");
+
+	double lastRunTime = Runtime.TimeSinceLastRun.TotalSeconds;
+
+	float dRPMdT = (float)((RPM - lastRPM) / lastRunTime);
+	lastRPM = RPM;
+
+
+	if(slowStart && RPM < 0.8 * maxVelocity) {
+		//mShaft.Torque = 0.3f * (maxTorque - startTorque) * RPM / maxVelocity + startTorque;
+		float slowStartTorque = (float)slowStartController.update(5, dRPMdT);
+		if(!slowStartTorque.IsValid()) {
+			slowStartTorque = 0;
+		}
+		mShaft.Torque = Math.Max(maxTorque * Math.Min(slowStartTorque, 1), 5000);
+	} else {
+		slowStart = false;
+		mShaft.Torque = maxTorque;
+	}
+	//mShaft.Torque = 200000;
+
+	//write($"slow start: {slowStart}\nT:{mShaft.Torque.Round(0)}");
+	write($"main rotor RPM: {RPM}\n");
 	write($"pitch assist: {pitch_assist}");
 	write($"yaw assist: {yaw_assist}");
 	write($"roll assist: {roll_assist}");
@@ -230,6 +304,8 @@ public void Main(string argument, UpdateType runType) {
 	// set the blade angles
 	theHelicopter.go(translation, rotation);
 }
+
+
 
 public string apply_controls(ref Vector3D translation, ref Vector3D rotation) {
 
@@ -330,6 +406,7 @@ public double applyControl(Dictionary<string, object> inputs, string key, float 
 	string errors = null;
 	return applyControl(inputs, key, multiplier, ref errors);
 }
+
 
 // writes to error string
 // returns value of inputs[key], and handles the vector2 thing
@@ -434,62 +511,60 @@ public void apply_autohover(ref Vector3D translation, ref Vector3D rotation) {
 }
 
 
-public const string controllerN = "Cockpit Forward";
-public const string mShaftN = "MRotor";
-public const string tShaftN = "TRotor";
-
 public bool setup() {
-
-	// TODO: make this check
-
-	Echo("Setup A");
+	bool isError = false;
 
 	controller = (IMyShipController)GridTerminalSystem.GetBlockWithName(controllerN);
 	if(controller == null) {
 		Echo($"No controller with name '{controllerN}'");
-		return false;
+		isError = true;
 	}
 
-	Echo("Setup B");
 
-	ShipIMU = new Kinematics((IMyEntity)controller, null);
-	Echo("Setup C");
-
-	// get rotors
+	// get main rotors
 	mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName(mShaftN);
 	if(mShaft == null) {
 		Echo($"No rotor found with name '{mShaftN}'");
-		return false;
+		isError = true;
 	}
-	Echo("Setup D " + mShaft.CustomName);
 	tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName(tShaftN);
 	if(mShaft == null) {
 		Echo($"No rotor found with name '{tShaftN}'");
+		isError = true;
+	}
+
+	//get timer which keeps me alive
+	timer = (IMyTimerBlock)GridTerminalSystem.GetBlockGroupWithName(timerN);
+	if(timer == null) {
+		Echo($"No timer found with name '{timerN}'");
+		isError = true;
+	}
+
+	
+	if(isError) {
 		return false;
 	}
-	Echo("Setup E " + tShaft.CustomName);
 
+	//setup inertial measurement unit
+	ShipIMU = new Kinematics((IMyEntity)controller, null);
+
+	//allow us to control position of tail rotor
 	tailRotor = new Rotor(tShaft);
-	Echo("Setup H");
 
 	// construct swashplates
 	SwashPlate mainSwash = new SwashPlate(this, controller, mShaft);
-	Echo("Setup I");
 	SwashPlate antiTrq = new SwashPlate(this, controller, tShaft);
-	Echo("Setup J");
 
 
+	//create swash plate objects for helicopter
 	Dictionary<string, Pair<SwashPlate, IControlsConvert>> heliRotors = new Dictionary<string, Pair<SwashPlate, IControlsConvert>>();
-	Echo("Setup K");
-
 	heliRotors.Add("Main Swashplate", new Pair<SwashPlate, IControlsConvert>(mainSwash, new mainRotorConvert()));
-	Echo("Setup L");
 	heliRotors.Add("Anti Torque", new Pair<SwashPlate, IControlsConvert>(antiTrq, new antiTrqRotorConvert()));
-	Echo("Setup M");
 
+	//init helicopter with swashplates
 	theHelicopter = new Helicopter(this, controller, heliRotors);
-	Echo("Setup N");
 
+	//set assists
 	theHelicopter.is_PID_pitch_active = pitch_assist;
 	theHelicopter.is_PID_yaw_active = yaw_assist;
 	theHelicopter.is_PID_roll_active = roll_assist;
@@ -761,34 +836,31 @@ public class SwashPlate {
 
 	public float maxValue = 1f;
 
+
+	public bool updateDirection = false;
+
 	// auto-detect rotor blades
 	public SwashPlate(Program prog, IMyShipController controller, IMyMotorStator rotorShaft) {
-		this.controller = controller;
-		this.rotorShaft = rotorShaft;
-		this.prog = prog;
 
 		// get all rotors whose grid is the same as the rotor shaft top grid
 		List<IMyMotorStator> blocks = new List<IMyMotorStator>();
 		prog.GridTerminalSystem.GetBlocksOfType<IMyMotorStator>(blocks, block => block.CubeGrid.EntityId == rotorShaft.TopGrid.EntityId);
 
-		this.blades = new List<Rotor>();
-		foreach(IMyMotorStator motor in blocks) {
-			Rotor current = new Rotor(motor);
 
-			// forward direction is reversed if the main rotor is in reverse
-			current.setForwardDir(Vector3D.Cross(rotorShaft.WorldMatrix.Up, motor.WorldMatrix.Up) * (rotorShaft.TargetVelocityRPM > 0 ? 1 : -1));
-			// current.headOffset = current.localForwardDir; //no offset
-			// current.headOffset = new Vector3D(-1,0,0);
-
-			this.blades.Add(current);
-		}
+		Setup(prog, controller, blocks.ToArray(), rotorShaft);
 	}
 
 	// only use the given rotor blades
 	public SwashPlate(Program prog, IMyShipController controller, IMyMotorStator[] blades, IMyMotorStator rotorShaft) {
+		Setup(prog, controller, blades, rotorShaft);
+	}
+
+	public void Setup(Program prog, IMyShipController controller, IMyMotorStator[] blades, IMyMotorStator rotorShaft) {
 		this.controller = controller;
 		this.rotorShaft = rotorShaft;
 		this.prog = prog;
+
+		updateDirection = Math.Abs(rotorShaft.TargetVelocityRPM) < 10;
 
 		this.blades = new List<Rotor>();
 		foreach(IMyMotorStator motor in blades) {
@@ -807,6 +879,18 @@ public class SwashPlate {
 
 	// should keep controls between -1 and 1
 	public void go(Controls cont) {
+
+		if(updateDirection && Math.Abs(rotorShaft.TargetVelocityRPM) > 10) {
+			foreach(Rotor blade in blades) {
+
+				// forward direction is reversed if the main rotor is in reverse
+				blade.setForwardDir(Vector3D.Cross(rotorShaft.WorldMatrix.Up, blade.theBlock.WorldMatrix.Up) * (rotorShaft.TargetVelocityRPM > 0 ? 1 : -1));
+
+			}
+
+			updateDirection = false;
+		}
+
 		if(printinfo) {
 			theStr = "";
 		}
