@@ -1,6 +1,6 @@
-public const string assistsArg = "assists":
-public const string hoverArg = "auto hover":
-public const string ignitionArg = "engine":
+public const string assistsArg = "assists";
+public const string hoverArg = "auto hover";
+public const string ignitionArg = "engine";
 
 
 // turn on PID controllers for each axis
@@ -160,6 +160,7 @@ public float RPM = 0;
 //just a math constant
 public const float RADsToRPM = 30 / (float)Math.PI;
 
+public bool wasUnderControl = false;
 
 
 public Program() {
@@ -178,13 +179,35 @@ int counter = 0;
 public void Main(string argument, UpdateType runType) {
 	if(justCompiled) {
 		if(!setup()) {
+			Echo("Error in Setup");
 			return;
 		}
 		justCompiled = !justCompiled;
 	}
 	writeBool = false;
 
+	if(timer == null) {
+		Echo("ERROR: no timer block to trigger me");
+		return;
+	}
+
 	Echo($"{counter++}");
+
+	//check cockpit
+	bool imUnderControl = controller.IsAlive() && (controller.IsUnderControl || autohover);
+	if(!imUnderControl) {
+		//go to sleep
+		Echo("sleep mode");
+		Runtime.UpdateFrequency = UpdateFrequency.Update100;
+		timer.Enabled = false;
+		wasUnderControl = false;
+		return;
+	} else if(!wasUnderControl) {
+		Runtime.UpdateFrequency = UpdateFrequency.None;
+		timer.Enabled = true;
+	}
+	wasUnderControl = true;
+
 
 	Echo($"{Runtime.TimeSinceLastRun}");
 	if(Runtime.TimeSinceLastRun.Milliseconds > 16) {
@@ -193,29 +216,33 @@ public void Main(string argument, UpdateType runType) {
 	Echo(log);
 
 
-	// assistsArg = "assists":
-	// hoverArg = "auto hover":
-	// ignitionArg = "engine":
+	// arguments
 
-	switch(argument.ToLower()) {
+	//toggle assists
+	if(argument.ToLower() == assistsArg.ToLower()) {
+		timer.Enabled = true;
 
-		case assistsArg.ToLower():
-			pitch_assist = !pitch_assist;
-			roll_assist = !roll_assist;
-			yaw_assist = !yaw_assist;
-		break;
+		pitch_assist = !pitch_assist;
+		roll_assist = !roll_assist;
+		yaw_assist = !yaw_assist;
+	}
 
-		case hoverArg.ToLower():
-			autohover = !autohover;
-		break;
+	//toggle hover
+	if(argument.ToLower() == hoverArg.ToLower()) {
+		timer.Enabled = true;
 
-		case ignitionArg.ToLower():
-			engineEnabled = !engineEnabled;
-			mShaft.Enabled = engineEnabled;
-			slowStart = engineEnabled;
-			slowStartController = new PID(1, 1, 1, this);
-			slowStartController.ClampI = false;
-		break;
+		autohover = !autohover;
+	}
+
+	//toggle engine
+	if(argument.ToLower() == ignitionArg.ToLower()) {
+		timer.Enabled = true;
+
+		engineEnabled = !engineEnabled;
+		mShaft.Enabled = engineEnabled;
+		slowStart = engineEnabled;
+		slowStartController = new PID(1, 1, 1, this);
+		slowStartController.ClampI = false;
 	}
 
 
@@ -534,7 +561,7 @@ public bool setup() {
 	}
 
 	//get timer which keeps me alive
-	timer = (IMyTimerBlock)GridTerminalSystem.GetBlockGroupWithName(timerN);
+	timer = (IMyTimerBlock)GridTerminalSystem.GetBlockWithName(timerN);
 	if(timer == null) {
 		Echo($"No timer found with name '{timerN}'");
 		isError = true;
@@ -1266,6 +1293,9 @@ public class Kinematics
 public static class CustomProgramExtensions {
 
 	public static bool IsAlive(this IMyTerminalBlock block) {
+		if(block == null) {
+			return false;
+		}
 		return block.CubeGrid.GetCubeBlock(block.Position)?.FatBlock == block;
 	}
 
@@ -1336,3 +1366,12 @@ public static class CustomProgramExtensions {
 	public static float Round(this float val, int num) {
 		return (float)Math.Round(val, num);
 	}
+
+	public static bool IsValid(this float val) {
+		return (new Vector3D(val, val, val)).IsValid();
+	}
+
+	public static bool IsValid(this double val) {
+		return (new Vector3D(val, val, val)).IsValid();
+	}
+
