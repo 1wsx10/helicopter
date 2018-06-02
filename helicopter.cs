@@ -33,14 +33,14 @@ public const float mouse_sensitivity = 0.09f;
 
 public const float collectiveSensitivity 	= overall_sensitivity * 0.3f;
 
-public const float mousepitch_sensitivity 	= overall_sensitivity * 1f / 6f;
-public const float mouseyaw_sensitivity 	= overall_sensitivity * 1f / 6f;
-public const float pitch_sensitivity 		= overall_sensitivity * 1.3f / 6f;
-public const float yaw_sensitivity 			= overall_sensitivity * 1.3f / 6f;
-public const float roll_sensitivity 		= overall_sensitivity * 1.3f / 6f;
+public const float mousepitch_sensitivity 	= overall_sensitivity * 1f / 1f;
+public const float mouseyaw_sensitivity 	= overall_sensitivity * 1f / 1f;
+public const float pitch_sensitivity 		= overall_sensitivity * 1.3f / 1f;
+public const float yaw_sensitivity 			= overall_sensitivity * 1.3f / 1f;
+public const float roll_sensitivity 		= overall_sensitivity * 1.3f / 1f;
 
 // sensitivity adjustment when flight assists are active
-public const float pid_sensitivity = 6f;
+public const float pid_sensitivity = 1f;
 
 
 // control module joystick / gamepad bindings
@@ -118,12 +118,14 @@ IMyShipController controller;
 
 public bool controlModule = true;
 
+public bool justCompiled = true;
+
 
 
 
 
 public Program() {
-	setup();
+	// setup();
 
 	if(!Me.CustomName.ToLower().Contains("heli")) {
 		Me.CustomName = "Heli " + Me.CustomName;
@@ -136,6 +138,12 @@ public Program() {
 
 int counter = 0;
 public void Main(string argument, UpdateType runType) {
+	if(justCompiled) {
+		if(!setup()) {
+			return;
+		}
+		justCompiled = !justCompiled;
+	}
 	writeBool = false;
 
 	Echo($"{counter++}");
@@ -176,12 +184,17 @@ public void Main(string argument, UpdateType runType) {
 			theHelicopter.resetPIDs();
 		}
 
-		write($"main rotor RPM:\n{RPM}");
+		write($"main rotor RPM: {RPM}\n");
 	}
 
+	write($"pitch assist: {pitch_assist}");
+	write($"yaw assist: {yaw_assist}");
+	write($"roll assist: {roll_assist}");
+	write($"autohover: {autohover}");
 
 
-	// control tail rotor speed to match main rotor speed
+
+	// control tail rotor pos to match main rotor pos
 	tailRotor.setFromVec((mShaft.Top.WorldMatrix.Forward + mShaft.Top.WorldMatrix.Right / 1.414f).TransformNormal(mShaft.WorldMatrix.Invert()).TransformNormal(tShaft.WorldMatrix));
 
 
@@ -421,21 +434,39 @@ public void apply_autohover(ref Vector3D translation, ref Vector3D rotation) {
 }
 
 
+public const string controllerN = "Cockpit Forward";
+public const string mShaftN = "MRotor";
+public const string tShaftN = "TRotor";
+
 public bool setup() {
 
 	// TODO: make this check
 
 	Echo("Setup A");
-	controller = (IMyShipController)GridTerminalSystem.GetBlockWithName("Cockpit Forward");
+
+	controller = (IMyShipController)GridTerminalSystem.GetBlockWithName(controllerN);
+	if(controller == null) {
+		Echo($"No controller with name '{controllerN}'");
+		return false;
+	}
+
 	Echo("Setup B");
 
 	ShipIMU = new Kinematics((IMyEntity)controller, null);
 	Echo("Setup C");
 
 	// get rotors
-	mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("MRotor");
+	mShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName(mShaftN);
+	if(mShaft == null) {
+		Echo($"No rotor found with name '{mShaftN}'");
+		return false;
+	}
 	Echo("Setup D " + mShaft.CustomName);
-	tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName("TRotor");
+	tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName(tShaftN);
+	if(mShaft == null) {
+		Echo($"No rotor found with name '{tShaftN}'");
+		return false;
+	}
 	Echo("Setup E " + tShaft.CustomName);
 
 	tailRotor = new Rotor(tShaft);
