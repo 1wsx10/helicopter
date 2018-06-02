@@ -209,10 +209,15 @@ public void Main(string argument, UpdateType runType) {
 		Runtime.UpdateFrequency = UpdateFrequency.Update100;
 		timer.Enabled = false;
 		wasUnderControl = false;
+		tShaft.TargetVelocityRPM = 0;
 		return;
 	} else if(!wasUnderControl) {
 		timer.Enabled = true;
+		timer.Silent = true;
+		timer.TriggerDelay = 1;
 	}
+	timer.StartCountdown();
+	timer.Trigger();
 	Runtime.UpdateFrequency = UpdateFrequency.None;
 	wasUnderControl = true;
 
