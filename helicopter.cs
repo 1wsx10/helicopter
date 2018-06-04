@@ -23,14 +23,14 @@ public const string timerN = "Heli Timer Block";//timer block which triggers thi
 
 
 //increase this if your heli sinks when trying to hover
-public const float collectiveDefault = 0.03f;
+public const float collectiveDefault = 0.05f;
 
 
 // multiply by -1 to reverse, or 0.5 to half, etc...
 public const float overall_sensitivity = 1f;
 public const float mouse_sensitivity = 0.09f;
 
-public const float collectiveSensitivity 	= overall_sensitivity * 0.3f;
+public const float collectiveSensitivity 	= overall_sensitivity * 0.25f;
 
 public const float mousepitch_sensitivity 	= overall_sensitivity * 1f;
 public const float mouseyaw_sensitivity 	= overall_sensitivity * 1f;
@@ -206,15 +206,28 @@ public void Main(string argument, UpdateType runType) {
 	if(!imUnderControl) {
 		//go to sleep
 		Echo("sleep mode");
+
+		//turn off timer control, control myself slowly
 		Runtime.UpdateFrequency = UpdateFrequency.Update100;
 		timer.Enabled = false;
 		wasUnderControl = false;
-		tShaft.TargetVelocityRPM = 0;
+
+		//turn off swashplate rotors, and main rotors
+		theHelicopter.turnOn(false);
+		mShaft.Enabled = false;
+		tShaft.Enabled = false;
 		return;
 	} else if(!wasUnderControl) {
+
+		//make sure i can be controlled
 		timer.Enabled = true;
 		timer.Silent = true;
 		timer.TriggerDelay = 1;
+
+		//turn on swashplate rotors, and tail rotor since that's mimicking main rotor
+		//don't turn on main rotor
+		theHelicopter.turnOn(true);
+		tShaft.Enabled = true;
 	}
 	timer.StartCountdown();
 	timer.Trigger();
@@ -297,7 +310,6 @@ public void Main(string argument, UpdateType runType) {
 		slowStart = false;
 		mShaft.Torque = maxTorque;
 	}
-	//mShaft.Torque = 200000;
 
 	//write($"slow start: {slowStart}\nT:{mShaft.Torque.Round(0)}");
 	write($"main rotor RPM: {RPM}\n");
@@ -615,6 +627,17 @@ public bool setup() {
 	return true;
 }
 
+//mass:
+//long tail small radius
+//30,985 kg
+//138 RPM
+//long tail large radius
+//31,445 kg
+//128 RPM
+//short tail small radius
+//30,649 kg
+//169 RPM
+
 public List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
 private IMyTextPanel screen;
 private bool writeBool;
@@ -622,6 +645,7 @@ public void write(string str) {
 	str += "\n";
 	if(writeBool) {
 		screen.WritePublicText(str, true);
+		screen.ShowPublicTextOnScreen();
 	} else {
 		blocks.Clear();
 		GridTerminalSystem.GetBlocksOfType<IMyTextPanel>(blocks);
@@ -635,6 +659,7 @@ public void write(string str) {
 			}
 		}
 		screen.WritePublicText(str);
+		screen.ShowPublicTextOnScreen();
 		writeBool = true;
 	}
 }
@@ -734,6 +759,14 @@ public class Helicopter {
 
 		if(this.heliRotors == null) {
 			this.heliRotors = new Dictionary<string, Pair<SwashPlate, IControlsConvert>>();
+		}
+	}
+
+	public void turnOn(bool isOn) {
+		foreach(KeyValuePair<string, Pair<SwashPlate, IControlsConvert>> kv in heliRotors) {
+			SwashPlate current = kv.Value.first;
+
+			current.turnOn(isOn);
 		}
 	}
 
@@ -877,7 +910,7 @@ public class SwashPlate {
 	public float maxValue = 1f;
 
 
-	public bool updateDirection = false;
+	public bool positiveDirection = false;
 
 	// auto-detect rotor blades
 	public SwashPlate(Program prog, IMyShipController controller, IMyMotorStator rotorShaft) {
@@ -900,7 +933,7 @@ public class SwashPlate {
 		this.rotorShaft = rotorShaft;
 		this.prog = prog;
 
-		updateDirection = Math.Abs(rotorShaft.TargetVelocityRPM) < 10;
+		positiveDirection = rotorShaft.TargetVelocityRPM > 0;
 
 		this.blades = new List<Rotor>();
 		foreach(IMyMotorStator motor in blades) {
@@ -915,12 +948,19 @@ public class SwashPlate {
 		}
 	}
 
+	public void turnOn(bool isOn) {
+		foreach(Rotor blade in blades) {
+			blade.theBlock.Enabled = isOn;
+		}
+	}
+
 	// controls, Vector3D
 
 	// should keep controls between -1 and 1
 	public void go(Controls cont) {
 
-		if(updateDirection && Math.Abs(rotorShaft.TargetVelocityRPM) > 10) {
+		bool positive_now = Math.Abs(rotorShaft.TargetVelocityRPM) > 0;
+		if(true || positive_now != positiveDirection) {
 			foreach(Rotor blade in blades) {
 
 				// forward direction is reversed if the main rotor is in reverse
@@ -928,7 +968,7 @@ public class SwashPlate {
 
 			}
 
-			updateDirection = false;
+			positiveDirection = positive_now;
 		}
 
 		if(printinfo) {
