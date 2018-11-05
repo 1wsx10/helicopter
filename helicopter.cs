@@ -235,6 +235,7 @@ public void Main(string argument, UpdateType runType) {
 	wasUnderControl = true;
 
 
+
 	Echo($"{Runtime.TimeSinceLastRun}");
 	if(Runtime.TimeSinceLastRun.Milliseconds > 16) {
 		log += $"Time was greater than 0.016: \n\t{Runtime.TimeSinceLastRun.Milliseconds}ms";
@@ -266,6 +267,7 @@ public void Main(string argument, UpdateType runType) {
 
 		engineEnabled = !engineEnabled;
 		mShaft.Enabled = engineEnabled;
+		tShaft.Enabled = engineEnabled;
 		slowStart = engineEnabled;
 		slowStartController = new PID(1, 1, 1, this);
 		slowStartController.ClampI = false;
@@ -299,7 +301,7 @@ public void Main(string argument, UpdateType runType) {
 	lastRPM = RPM;
 
 
-	if(slowStart && RPM < 0.8 * maxVelocity) {
+	if(slowStart && RPM < 0.995f * maxVelocity) {
 		//mShaft.Torque = 0.3f * (maxTorque - startTorque) * RPM / maxVelocity + startTorque;
 		float slowStartTorque = (float)slowStartController.update(5, dRPMdT);
 		if(!slowStartTorque.IsValid()) {
@@ -321,7 +323,9 @@ public void Main(string argument, UpdateType runType) {
 
 
 	// control tail rotor pos to match main rotor pos
-	tailRotor.setFromVec((mShaft.Top.WorldMatrix.Forward + mShaft.Top.WorldMatrix.Right / 1.414f).TransformNormal(mShaft.WorldMatrix.Invert()).TransformNormal(tShaft.WorldMatrix));
+	if(tShaft.IsConnected() && mShaft.IsConnected()) {
+		tailRotor.setFromVec((mShaft.Top.WorldMatrix.Forward + mShaft.Top.WorldMatrix.Right / 1.414f).TransformNormal(mShaft.WorldMatrix.Invert()).TransformNormal(tShaft.WorldMatrix));
+	}
 
 
 
@@ -354,6 +358,7 @@ public void Main(string argument, UpdateType runType) {
 
 
 	// set the blade angles
+	Echo("Setting blade angles");
 	theHelicopter.go(translation, rotation);
 }
 
@@ -579,9 +584,17 @@ public bool setup() {
 		Echo($"No rotor found with name '{mShaftN}'");
 		isError = true;
 	}
+	if(mShaft.Top == null) {
+		Echo($"{mShaftN} does not have a top");
+		isError = true;
+	}
 	tShaft = (IMyMotorStator)GridTerminalSystem.GetBlockWithName(tShaftN);
 	if(mShaft == null) {
 		Echo($"No rotor found with name '{tShaftN}'");
+		isError = true;
+	}
+	if(tShaft.Top == null) {
+		Echo($"{tShaftN} does not have a top");
 		isError = true;
 	}
 
@@ -606,6 +619,7 @@ public bool setup() {
 	// construct swashplates
 	SwashPlate mainSwash = new SwashPlate(this, controller, mShaft);
 	SwashPlate antiTrq = new SwashPlate(this, controller, tShaft);
+	antiTrq.maxValue = 1.6f;
 
 
 	//create swash plate objects for helicopter
@@ -901,6 +915,7 @@ public class SwashPlate {
 	public List<Rotor> blades;
 	public IMyShipController controller;
 	public IMyMotorStator rotorShaft;
+	public Kinematics rotorShaftMonitor;
 
 	public Program prog;
 
@@ -917,7 +932,7 @@ public class SwashPlate {
 
 		// get all rotors whose grid is the same as the rotor shaft top grid
 		List<IMyMotorStator> blocks = new List<IMyMotorStator>();
-		prog.GridTerminalSystem.GetBlocksOfType<IMyMotorStator>(blocks, block => block.CubeGrid.EntityId == rotorShaft.TopGrid.EntityId);
+		prog.GridTerminalSystem.GetBlocksOfType<IMyMotorStator>(blocks, block => block.CubeGrid.EntityId == rotorShaft.TopGrid?.EntityId);
 
 
 		Setup(prog, controller, blocks.ToArray(), rotorShaft);
@@ -959,8 +974,25 @@ public class SwashPlate {
 	// should keep controls between -1 and 1
 	public void go(Controls cont) {
 
-		bool positive_now = Math.Abs(rotorShaft.TargetVelocityRPM) > 0;
-		if(true || positive_now != positiveDirection) {
+		if(!this.rotorShaft.IsConnected()) {
+			return;
+		}
+
+		bool topNull = false;
+		if(rotorShaftMonitor == null) {
+			topNull = this.rotorShaft.Top == null;
+			rotorShaftMonitor = (topNull ? null : new Kinematics(this.rotorShaft, this.rotorShaft.Top));
+		}
+
+		//check if direction hasa changed
+		bool positive_now = true;
+		if(!topNull) {
+			rotorShaftMonitor.Update(prog.Runtime.TimeSinceLastRun.TotalSeconds);
+			float RPM = (float)(rotorShaftMonitor.VelocityAngularCurrent * RADsToRPM).Y;
+			positive_now = RPM > 0;
+		}
+
+		if(positive_now != positiveDirection) {
 			foreach(Rotor blade in blades) {
 
 				// forward direction is reversed if the main rotor is in reverse
@@ -999,6 +1031,10 @@ public class SwashPlate {
 
 		bool first = true;
 		foreach(Rotor blade in blades) {
+
+			if(!blade.theBlock.IsConnected()) {
+				continue;
+			}
 
 			Vector3D bladeForward = blade.getForwardDir();
 
@@ -1116,7 +1152,7 @@ public class PID {
 	private double lasterror = 0;
 	public double integral = 0;
 
-	public double iLimit = 8;
+	public double iLimit = 12;
 	public bool ClampI = true;
 
 	public string info = "";
@@ -1345,11 +1381,12 @@ public class Kinematics
 }
 public static class CustomProgramExtensions {
 
-	public static bool IsAlive(this IMyTerminalBlock block) {
-		if(block == null) {
-			return false;
-		}
-		return block.CubeGrid.GetCubeBlock(block.Position)?.FatBlock == block;
+	public static bool IsAlive(this IMyCubeBlock block) {
+		return block != null && block.CubeGrid.GetCubeBlock(block.Position)?.FatBlock == block;
+	}
+
+	public static bool IsConnected(this IMyMechanicalConnectionBlock block) {
+		return block.IsAlive() && block.Top != null;
 	}
 
 	// projects a onto b
